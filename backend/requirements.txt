@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+opencv-python
+torch
+transformers
+numpy
+python-multipart
+websockets
+kaggle
