@@ -1,9 +1,0 @@
-flask
-flask-cors
-pillow
-torch
-torchvision
-transformers
-opencv-python
-numpy
-cloudinary
