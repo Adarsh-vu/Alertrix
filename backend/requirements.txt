@@ -1,9 +1,9 @@
-fastapi
-uvicorn
-opencv-python
+flask
+flask-cors
+pillow
 torch
+torchvision
 transformers
+opencv-python
 numpy
-python-multipart
-websockets
-kaggle
+cloudinary

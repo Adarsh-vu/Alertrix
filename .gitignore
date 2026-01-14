@@ -60,6 +60,12 @@ Thumbs.db
 logs/
 *.log
 
+# Models
+*.pth
+*.pt
+*.h5
+*.onnx
+
 # Local documentation & scripts
 *.docx
 *.bat
