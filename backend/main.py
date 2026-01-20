@@ -27,7 +27,8 @@ cloudinary.config(
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "alertrix_final_epoch40.pth")
 MODEL_TYPE = "MCG-NJU/videomae-base"
 DEVICE = "cpu"
-THRESHOLD = 0.39
+THRESHOLD = 0.45
+FRAME_SKIP = 2 
 
 # ==========================================
 # 2. LOAD THE MODEL
@@ -65,13 +66,19 @@ def process_video(video_path):
     
     frame_buffer = []
     anomalies = []
-    current_frame = 0
+    current_frame = 0 # Tracks real video frames
     
-    print(f"Processing video for anomalies...")
+    print(f"Processing video for anomalies (Speedup: {FRAME_SKIP}x)...")
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret: break
+
+        current_frame += 1
+        
+        # Skip frames for speed optimization
+        if current_frame % FRAME_SKIP != 0:
+            continue
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(frame_rgb)
@@ -85,18 +92,18 @@ def process_video(video_path):
                 outputs = model(inputs, bool_masked_pos=mask)
                 loss = outputs.loss.item()
             
-            if loss > THRESHOLD:
-                timestamp = current_frame / fps
-                anomalies.append({
-                    "time": round(timestamp, 2),
-                    "score": round(loss, 4),
-                    "status": "Anomaly Detected"
-                })
+            timestamp = current_frame / fps
+            is_anomaly = loss > THRESHOLD
+            
+            anomalies.append({
+                "time": round(timestamp, 2),
+                "score": round(loss, 4),
+                "status": "Anomaly Detected" if is_anomaly else "Normal",
+                "is_anomaly": is_anomaly
+            })
 
             frame_buffer = frame_buffer[8:] # Stride
 
-        current_frame += 1
-    
     cap.release()
     return anomalies
 
@@ -115,7 +122,10 @@ def analyze():
     try:
         # 1. Run AI Analysis
         results = process_video(temp_filename)
-        status = "ANOMALY DETECTED" if len(results) > 0 else "CLEAR"
+        
+        has_anomaly = any(r['is_anomaly'] for r in results)
+        status = "ANOMALY DETECTED" if has_anomaly else "SECURE"
+        
         video_url = None
 
         # 2. If Anomaly -> Upload to Cloudinary

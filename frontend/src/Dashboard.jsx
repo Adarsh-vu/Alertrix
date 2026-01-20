@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-// import bannerImage from './assets/banner.jpg'; // Ensure you have this image or comment it out
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
@@ -16,13 +15,10 @@ const Dashboard = () => {
     const [alertCount, setAlertCount] = useState(3);
     const [alertsMuted, setAlertsMuted] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
-
-    // New Hero Banner State
     const [floatingElements, setFloatingElements] = useState([]);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
     useEffect(() => {
-        // Generate floating particles
         const particles = Array.from({ length: 20 }, (_, i) => ({
             id: i,
             x: Math.random() * 100,
@@ -51,7 +47,7 @@ const Dashboard = () => {
         emailAlerts: true,
         soundAlerts: true,
         pushNotifications: false,
-        threshold: 0.39,
+        threshold: 0.40,
         cooldown: 30
     });
     const wsRef = useRef(null);
@@ -87,7 +83,7 @@ const Dashboard = () => {
     const [editingPersonId, setEditingPersonId] = useState(null);
     const [newPerson, setNewPerson] = useState({ name: '', phone: '', age: '' });
 
-    // WebSocket connection (COMMENTED OUT TO PREVENT CONSOLE ERRORS UNTIL PHASE 3)
+    // WebSocket connection (PHASE 3)
     /*
     useEffect(() => {
         const connectWebSocket = () => {
@@ -120,6 +116,8 @@ const Dashboard = () => {
         const formData = new FormData();
         formData.append('video', file);
 
+        const startTime = performance.now();
+
         try {
             const response = await fetch('http://localhost:5000/analyze', {
                 method: 'POST',
@@ -129,9 +127,11 @@ const Dashboard = () => {
             if (!response.ok) throw new Error(`Server Error: ${response.status}`);
 
             const data = await response.json();
+            const endTime = performance.now();
+            const duration = ((endTime - startTime) / 1000).toFixed(2);
 
             // 2. Store Result
-            setAnalysisResult(data);
+            setAnalysisResult({ ...data, processingTime: duration });
             setIsAnalyzing(false);
 
             // Keep existing log
@@ -323,14 +323,13 @@ const Dashboard = () => {
         const details = analysisResult?.details || [];
         const maxScore = details.length > 0 ? Math.max(...details.map(d => d.score)) : 0;
 
-        // Calculate Average Threat Score (only for anomalous frames, or top 10% if none)
+        // Calculate Average Threat Score
         const anomalousFrames = details.filter(d => d.score > alertSettings.threshold);
         let avgScore = 0;
 
         if (anomalousFrames.length > 0) {
             avgScore = anomalousFrames.reduce((a, b) => a + b.score, 0) / anomalousFrames.length;
         } else if (details.length > 0) {
-            // If no anomalies, show average of top 10% activity to indicate "peak normal activity"
             const sorted = [...details].sort((a, b) => b.score - a.score);
             const top10Percent = sorted.slice(0, Math.ceil(details.length * 0.1));
             avgScore = top10Percent.reduce((a, b) => a + b.score, 0) / top10Percent.length;
@@ -414,7 +413,7 @@ const Dashboard = () => {
                                         <div className={`text-3xl font-black tracking-tight ${analysisResult.status === 'ANOMALY DETECTED' ? 'text-red-400' : 'text-teal-400'}`}>
                                             {analysisResult.status === 'ANOMALY DETECTED' ? 'ANOMALY DETECTED' : 'SECURE'}
                                         </div>
-                                        <p className="text-slate-500 text-xs mt-2">processed in {(details.length * 0.03).toFixed(2)}s</p>
+                                        <p className="text-slate-500 text-xs mt-2">processed in {analysisResult.processingTime || '0.00'}s</p>
                                     </div>
                                 </div>
 
@@ -480,7 +479,7 @@ const Dashboard = () => {
                     </div>
                 </div>
 
-                {/* BOTTOM ROW: Anomaly Trend Graph - NOW FULL WIDTH */}
+                {/* BOTTOM ROW: Anomaly Trend Graph */}
                 {analysisResult && (
                     <div className="w-full bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-700/50 p-6 shadow-2xl relative overflow-hidden group">
                         {/* Cyber Grid Background */}
