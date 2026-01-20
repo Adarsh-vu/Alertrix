@@ -73,7 +73,7 @@ def classify_path(path):
     return 'unknown'
 
 if __name__ == "__main__":
-    print("🚀 Starting Data Prep...")
+    print("Starting Data Prep...")
     total_clips = 0
     
     # 1. SCAN VIDEOS (Recursively)
@@ -97,4 +97,4 @@ if __name__ == "__main__":
                 total_clips += process_image_sequence(f, dest)
                 print(f"Processed: {os.path.basename(f)} -> {cat}")
 
-    print(f"\n✅ DONE! Total Clips Generated: {total_clips}")
+    print(f"\n DONE! Total Clips Generated: {total_clips}")

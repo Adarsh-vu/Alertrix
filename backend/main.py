@@ -15,7 +15,7 @@ import cloudinary.uploader
 app = Flask(__name__)
 CORS(app)
 
-# CLOUDINARY SETUP (Fill these in)
+# CLOUDINARY SETUP
 cloudinary.config( 
   cloud_name = "dz23mrxfb", 
   api_key = "456783583454585", 

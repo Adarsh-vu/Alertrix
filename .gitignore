@@ -2,8 +2,9 @@
 .venv/
 venv/
 env/
+requirements.txt
 
-# Dataset files (too large for git)
+# Dataset files 
 DataCore/
 
 # IDE / Editor
@@ -34,7 +35,6 @@ wheels/
 .installed.cfg
 *.egg
 
-# Gemini AI Assistant (plans, discussions, artifacts)
 .gemini/
 
 # Node.js / Frontend
