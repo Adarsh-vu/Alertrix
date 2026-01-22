@@ -11,13 +11,9 @@ class VideoHandler:
     """
     Video handler class for capturing frames from video files or webcam.
     
-    Attributes:
-        source: Either a file path (str) or camera index (int, 0 for default webcam)
-        cap: OpenCV VideoCapture object
+    def __init__(self, source: Union[str, int] = 0): 
+        
     """
-    
-    def __init__(self, source: Union[str, int] = 0):
-        """
         Initialize the VideoHandler with a video source.
         
         Args:
@@ -87,7 +83,7 @@ class VideoHandler:
     
     def get_total_frames(self) -> int:
         """
-        Get total number of frames (only applicable for video files).
+        Get total number of frames.
         
         Returns:
             int: Total frame count, or -1 for webcam
@@ -113,21 +109,3 @@ class VideoHandler:
         """Destructor - ensures resource cleanup."""
         self.release()
 
-
-# Example usage
-if __name__ == "__main__":
-    # Test with webcam
-    print("Testing VideoHandler with webcam...")
-    try:
-        with VideoHandler(0) as handler:
-            print(f"Frame dimensions: {handler.get_frame_dimensions()}")
-            print(f"FPS: {handler.get_fps()}")
-            
-            # Get a few frames
-            frame_gen = handler.get_frames()
-            for i, frame in enumerate(frame_gen):
-                print(f"Frame {i}: {len(frame)} bytes")
-                if i >= 5:
-                    break
-    except ValueError as e:
-        print(f"Webcam not available: {e}")

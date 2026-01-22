@@ -337,13 +337,18 @@ const Dashboard = () => {
 
         const anomalyCount = details.filter(d => d.score > alertSettings.threshold).length;
         const confidenceLevel = maxScore > 0.8 ? 'Very High' : maxScore > 0.6 ? 'High' : 'Moderate';
-
-        // Prepare Chart Data (Scale to 0-100)
-        const chartData = details.map((d, i) => ({
-            time: d.timestamp ? new Date(d.timestamp * 1000).toISOString().substr(14, 5) : `${Math.floor(i / 60).toString().padStart(2, '0')}:${(i % 60).toString().padStart(2, '0')}`, // Format as MM:SS
+        const chartData = details.map((d) => ({
+            time: d.time, // Use raw seconds for linear axis
             score: (d.score * 100).toFixed(1),
             threshold: alertSettings.threshold * 100
         }));
+
+        const formatTime = (seconds) => {
+            if (!seconds && seconds !== 0) return '';
+            const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+            const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+            return `${mins}:${secs}`;
+        };
 
         return (
             <div className="page-content">
@@ -509,6 +514,10 @@ const Dashboard = () => {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} opacity={0.4} />
                                     <XAxis
                                         dataKey="time"
+                                        type="number"
+                                        domain={[0, 'auto']}
+                                        tickCount={8}
+                                        tickFormatter={formatTime}
                                         stroke="#94a3b8"
                                         fontSize={12}
                                         tickLine={false}
@@ -527,6 +536,7 @@ const Dashboard = () => {
                                         contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid #334155', borderRadius: '8px', color: '#fff', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)' }}
                                         itemStyle={{ color: '#fff', fontWeight: 'bold' }}
                                         labelStyle={{ color: '#94a3b8', marginBottom: '4px' }}
+                                        labelFormatter={(label) => `Time: ${formatTime(label)}`}
                                         formatter={(value, name) => [
                                             `${value}%`,
                                             name === 'score' ? 'Threat Score' : 'Threshold'
@@ -548,6 +558,7 @@ const Dashboard = () => {
                         </div>
                     </div>
                 )}
+
             </div>
         );
     };

@@ -76,7 +76,7 @@ if __name__ == "__main__":
     print("Starting Data Prep...")
     total_clips = 0
     
-    # 1. SCAN VIDEOS (Recursively)
+    # 1. SCAN VIDEOS
     print("...Scanning Video Files (UCF/Avenue)...")
     videos = glob.glob(f"{SRC_DIR}/**/*.mp4", recursive=True) + glob.glob(f"{SRC_DIR}/**/*.avi", recursive=True)
     for v in videos:
