@@ -119,14 +119,26 @@ const Dashboard = () => {
         const startTime = performance.now();
 
         try {
+            // 5-minute timeout for long analysis
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000);
+
             const response = await fetch('http://localhost:5000/analyze', {
                 method: 'POST',
                 body: formData,
+                signal: controller.signal
             });
 
-            if (!response.ok) throw new Error(`Server Error: ${response.status}`);
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Backend error:', errorText);
+                throw new Error(`Server Error: ${response.status}`);
+            }
 
             const data = await response.json();
+            console.log('Analysis result:', data);
             const endTime = performance.now();
             const duration = ((endTime - startTime) / 1000).toFixed(2);
 
@@ -147,7 +159,11 @@ const Dashboard = () => {
         } catch (error) {
             console.error('Upload error:', error);
             setIsAnalyzing(false);
-            alert("Analysis Failed! Ensure backend is running.");
+            if (error.name === 'AbortError') {
+                alert("Analysis timed out. Try a shorter video or check backend.");
+            } else {
+                alert(`Analysis Failed: ${error.message}`);
+            }
         }
     };
 

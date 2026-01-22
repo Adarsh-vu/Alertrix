@@ -1,4 +1,5 @@
 import os
+import math
 import cv2
 import torch
 import numpy as np
@@ -26,9 +27,10 @@ cloudinary.config(
 # AI MODEL SETUP
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "alertrix_final_epoch40.pth")
 MODEL_TYPE = "MCG-NJU/videomae-base"
-DEVICE = "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+USE_FP16 = DEVICE == "cuda" 
 THRESHOLD = 0.45
-FRAME_SKIP = 2 
+FRAME_SKIP = 3 
 
 # ==========================================
 # 2. LOAD THE MODEL
@@ -43,8 +45,10 @@ try:
         model.load_state_dict(checkpoint)
     model.to(DEVICE)
     model.eval()
+    if USE_FP16:
+        model.half()
     processor = VideoMAEImageProcessor.from_pretrained(MODEL_TYPE)
-    print("SUCCESS: Model Loaded! Server is ready.")
+    print(f"SUCCESS: Model Loaded on {DEVICE.upper()}! FP16={USE_FP16}. Server is ready.")
 except Exception as e:
     print(f"ERROR: {e}")
     print("HINT: Is the .pth file inside the backend folder?")
@@ -86,11 +90,15 @@ def process_video(video_path):
 
         if len(frame_buffer) == 16:
             inputs = processor(list(frame_buffer), return_tensors="pt").pixel_values.to(DEVICE)
+            if USE_FP16:
+                inputs = inputs.half()  # Match model precision
             mask = generate_mask(1, 1568, 0.75) 
 
             with torch.no_grad():
                 outputs = model(inputs, bool_masked_pos=mask)
                 loss = outputs.loss.item()
+                if not math.isfinite(loss):
+                    loss = 1.0
             
             timestamp = current_frame / fps
             is_anomaly = loss > THRESHOLD
@@ -102,7 +110,7 @@ def process_video(video_path):
                 "is_anomaly": is_anomaly
             })
 
-            frame_buffer = frame_buffer[8:] # Stride
+            frame_buffer = frame_buffer[10:]  # Optimized stride (was 8)
 
     cap.release()
     return anomalies
