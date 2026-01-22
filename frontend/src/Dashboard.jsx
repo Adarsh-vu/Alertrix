@@ -7,8 +7,10 @@ import {
     LayoutDashboard, Radio, Brain, User, LogOut, Shield, Mail, Phone, Clock,
     FileVideo, Play, Trash2, Save, Plus, Edit2, Check, Eye, EyeOff, Volume2
 } from 'lucide-react';
+import { PersonStanding } from 'lucide-react';
+import './Auth.css';
 
-const Dashboard = () => {
+const Dashboard = ({ user, onLogout }) => {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [isConnected, setIsConnected] = useState(false);
     const [currentScore, setCurrentScore] = useState(0);
@@ -53,15 +55,17 @@ const Dashboard = () => {
     const wsRef = useRef(null);
     const maxDataPoints = 30;
 
-    // Profile data
+    // Profile data - use logged in user data
     const userProfile = {
-        name: 'Adarsh V U',
-        role: 'Security Administrator',
-        email: 'adarsh@alertrix.com',
-        phone: '+91 98765 43210',
-        department: 'Security Operations',
-        shift: '08:00 - 20:00'
+        name: user?.username || 'Guest',
+        role: user?.role === 'admin' ? 'Administrator' : 'Security Officer',
+        email: user?.email || 'user@alertrix.com',
+        phone: user?.phone || 'Not set',
+        department: user?.department || 'Security Operations',
+        shift: user?.shift || '08:00 - 20:00'
     };
+
+    const isAdmin = user?.role === 'admin';
 
     // Camera feed data
     const [cameras, setCameras] = useState([
@@ -720,7 +724,10 @@ const Dashboard = () => {
                             </div>
                             <div className="profile-footer">
                                 <button className="btn-secondary"><Settings size={16} /> Settings</button>
-                                <button className="btn-logout"><LogOut size={16} /> Sign Out</button>
+                                <button className="logout-btn" onClick={onLogout}>
+                                    <span className="logout-btn-text">Log Out</span>
+                                    <span className="logout-btn-icon"><PersonStanding size={18} /></span>
+                                </button>
                             </div>
                         </div>
                     </div>

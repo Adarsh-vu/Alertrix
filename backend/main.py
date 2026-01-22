@@ -14,7 +14,23 @@ import cloudinary.uploader
 # 1. CONFIGURATION
 # ==========================================
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
+app.config['SECRET_KEY'] = 'alertrix-secret-key-change-in-production'
+
+# FIREBASE SETUP
+# NOTE: Add firebase-credentials.json to backend folder when ready
+from models import init_firebase
+firebase_ready = init_firebase()
+if firebase_ready:
+    print("Firebase connected successfully!")
+else:
+    print("WARNING: Firebase not initialized. Auth features will be limited.")
+
+# Register blueprints
+from auth import auth_bp
+from admin import admin_bp
+app.register_blueprint(auth_bp)
+app.register_blueprint(admin_bp)
 
 # CLOUDINARY SETUP
 cloudinary.config( 
@@ -159,4 +175,14 @@ def analyze():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
+    print("\n" + "="*50)
+    print("  ALERTRIX SERVER READY")
+    print("="*50)
+    print(f"  AI Model: {DEVICE.upper()} | FP16: {USE_FP16}")
+    print(f"  API Endpoints:")
+    print(f"    POST /analyze         - Video analysis")
+    print(f"    POST /api/auth/login  - User login")
+    print(f"    POST /api/auth/signup - User signup")
+    print(f"    GET  /api/admin/users - List users (admin)")
+    print("="*50 + "\n")
     app.run(host='0.0.0.0', port=5000, debug=True)
