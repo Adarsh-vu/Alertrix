@@ -4,11 +4,11 @@ import {
 } from 'recharts';
 import {
     Camera, Upload, Activity, AlertTriangle, Bell, BellOff, Settings, Users, Cpu,
-    LayoutDashboard, Radio, Brain, User, LogOut, Shield, Mail, Phone, Clock,
+    LayoutDashboard, Radio, Brain, User, LogOut, Shield, Mail, Phone, Clock, Lock,
     FileVideo, Play, Trash2, Save, Plus, Edit2, Check, Eye, EyeOff, Volume2
 } from 'lucide-react';
 import { PersonStanding } from 'lucide-react';
-import './Auth.css';
+import './Dashboard.css';
 
 const Dashboard = ({ user, onLogout }) => {
     const [activeTab, setActiveTab] = useState('dashboard');
@@ -176,18 +176,19 @@ const Dashboard = ({ user, onLogout }) => {
         { id: 'video', label: 'Video Analysis', icon: Upload },
         { id: 'live', label: 'Live AI Monitoring', icon: Radio },
         { id: 'alerts', label: 'Alert Settings', icon: Bell },
+        ...(isAdmin ? [{ id: 'settings', label: 'Settings', icon: Settings }] : []),
     ];
 
     // Render Dashboard Tab
     const renderDashboard = () => (
         <>
             <div className="stats-grid">
-                <div className="stat-card clickable" onClick={() => setShowCameraManager(true)}>
+                <div className="stat-card">
                     <div className="stat-icon purple"><Camera size={24} /></div>
                     <div className="stat-content">
                         <h3>Connected Cameras</h3>
                         <div className="value">{cameras.filter(c => c.visible).length}</div>
-                        <div className="sub-text">{cameras.length} Total • Click to manage</div>
+                        <div className="sub-text">{cameras.length} Total</div>
                     </div>
                 </div>
                 <div className="stat-card">
@@ -198,12 +199,12 @@ const Dashboard = ({ user, onLogout }) => {
                         <div className="sub-text warning">Last 24 hours</div>
                     </div>
                 </div>
-                <div className="stat-card clickable" onClick={() => setShowPersonnelManager(true)}>
+                <div className="stat-card">
                     <div className="stat-icon blue"><Users size={24} /></div>
                     <div className="stat-content">
                         <h3>Personnel</h3>
                         <div className="value">{personnel.length}</div>
-                        <div className="sub-text">On duty • Click to manage</div>
+                        <div className="sub-text">On duty</div>
                     </div>
                 </div>
                 <div className="stat-card">
@@ -661,6 +662,332 @@ const Dashboard = ({ user, onLogout }) => {
         </div>
     );
 
+    // State for User Management
+    const [allUsers, setAllUsers] = useState([]);
+    const [usersLoading, setUsersLoading] = useState(false);
+    const [editingUser, setEditingUser] = useState(null);
+    const [userFormData, setUserFormData] = useState({});
+
+    const fetchUsers = async () => {
+        setUsersLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/admin/users', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setAllUsers(data.users || []);
+            }
+        } catch (err) {
+            console.error('Failed to fetch users:', err);
+        } finally {
+            setUsersLoading(false);
+        }
+    };
+
+    const handleUpdateUser = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:5000/api/admin/users/${editingUser.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(userFormData)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setAllUsers(allUsers.map(u => u.id === editingUser.id ? data.user : u));
+                setEditingUser(null);
+            } else {
+                alert(data.error || 'Failed to update user');
+            }
+        } catch (err) {
+            console.error('Update error:', err);
+        }
+    };
+
+    const handleDeleteUser = async (userId) => {
+        if (!confirm('Are you sure you want to delete this user?')) return;
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:5000/api/admin/users/${userId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                setAllUsers(allUsers.filter(u => u.id !== userId));
+            } else {
+                const data = await response.json();
+                alert(data.error || 'Failed to delete user');
+            }
+        } catch (err) {
+            console.error('Delete error:', err);
+        }
+    };
+
+    const [settingsTab, setSettingsTab] = useState('users');
+    const [resetPasswordUser, setResetPasswordUser] = useState(null);
+    const [newPassword, setNewPassword] = useState('');
+
+    const handleResetPassword = async () => {
+        if (!newPassword || newPassword.length < 6) {
+            alert('Password must be at least 6 characters');
+            return;
+        }
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/auth/admin/reset-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ user_id: resetPasswordUser.id, new_password: newPassword })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert(data.message);
+                setResetPasswordUser(null);
+                setNewPassword('');
+            } else {
+                alert(data.error || 'Failed to reset password');
+            }
+        } catch (err) {
+            console.error('Reset password error:', err);
+        }
+    };
+
+    // Fetch users when Settings tab becomes active
+    useEffect(() => {
+        if (activeTab === 'settings' && isAdmin && allUsers.length === 0 && !usersLoading) {
+            fetchUsers();
+        }
+    }, [activeTab, isAdmin]);
+
+    const renderSettings = () => {
+        return (
+            <div className="page-content dash-settings-page dashboard-white-theme-wrapper">
+                <div className="page-header">
+                    <h1>Admin Settings</h1>
+                    <p>System configuration and access control</p>
+                </div>
+
+                <div className="dash-settings-tabs">
+                    <button className={`dash-settings-tab ${settingsTab === 'cameras' ? 'active' : ''}`} onClick={() => setSettingsTab('cameras')}>
+                        <Camera size={18} /> Cameras
+                    </button>
+                    <button className={`dash-settings-tab ${settingsTab === 'personnel' ? 'active' : ''}`} onClick={() => setSettingsTab('personnel')}>
+                        <Users size={18} /> Personnel
+                    </button>
+                    <button className={`dash-settings-tab ${settingsTab === 'users' ? 'active' : ''}`} onClick={() => setSettingsTab('users')}>
+                        <User size={18} /> Users
+                    </button>
+                </div>
+
+                {/* Cameras Settings */}
+                {settingsTab === 'cameras' && (
+                    <div className="dash-settings-section">
+                        <h2>Camera Management</h2>
+                        <div className="dash-settings-list">
+                            {cameras.map(camera => (
+                                <div key={camera.id} className="dash-settings-item">
+                                    <button
+                                        className={`visibility-btn ${camera.visible ? 'visible' : ''}`}
+                                        onClick={() => setCameras(cameras.map(c =>
+                                            c.id === camera.id ? { ...c, visible: !c.visible } : c
+                                        ))}
+                                    >
+                                        {camera.visible ? <Eye size={18} /> : <EyeOff size={18} />}
+                                    </button>
+                                    <div className="settings-item-content">
+                                        <div className="flex items-center gap-3">
+                                            {editingCameraId === camera.id ? (
+                                                <input type="text" value={camera.name} onChange={(e) => setCameras(cameras.map(c => c.id === camera.id ? { ...c, name: e.target.value } : c))} className="dash-settings-input" placeholder="Camera name" />
+                                            ) : (
+                                                <span className="settings-name">{camera.name}</span>
+                                            )}
+                                            <span className={`status-indicator ${camera.status}`}>{camera.status}</span>
+                                        </div>
+                                        {editingCameraId === camera.id ? (
+                                            <input type="text" value={camera.location} onChange={(e) => setCameras(cameras.map(c => c.id === camera.id ? { ...c, location: e.target.value } : c))} className="dash-settings-input" placeholder="Location" />
+                                        ) : (
+                                            <span className="settings-detail">{camera.location}</span>
+                                        )}
+                                    </div>
+                                    <div className="settings-actions">
+                                        <button className="edit-btn" onClick={() => setEditingCameraId(editingCameraId === camera.id ? null : camera.id)}>
+                                            {editingCameraId === camera.id ? <Check size={16} /> : <Edit2 size={16} />}
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Personnel Settings */}
+                {settingsTab === 'personnel' && (
+                    <div className="dash-settings-section">
+                        <h2>Personnel on Duty</h2>
+                        <div className="dash-settings-list">
+                            {personnel.map(person => (
+                                <div key={person.id} className="dash-settings-item">
+                                    <div className="person-avatar">{person.name.charAt(0)}</div>
+                                    <div className="settings-item-content">
+                                        {editingPersonId === person.id ? (
+                                            <>
+                                                <input type="text" value={person.name} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, name: e.target.value } : p))} className="dash-settings-input" />
+                                                <input type="tel" value={person.phone} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, phone: e.target.value } : p))} className="dash-settings-input" />
+                                                <input type="number" value={person.age} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, age: e.target.value } : p))} className="dash-settings-input small" />
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="settings-name">{person.name}</span>
+                                                <span className="settings-detail">{person.phone} • Age: {person.age}</span>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div className="settings-actions">
+                                        <button className="edit-btn" onClick={() => setEditingPersonId(editingPersonId === person.id ? null : person.id)}>
+                                            {editingPersonId === person.id ? <Check size={16} /> : <Edit2 size={16} />}
+                                        </button>
+                                        <button className="delete-btn" onClick={() => setPersonnel(personnel.filter(p => p.id !== person.id))}><Trash2 size={16} /></button>
+                                    </div>
+                                </div>
+                            ))}
+                            <div className="add-person-form">
+                                <h4>Add New Personnel</h4>
+                                <div className="add-form-row">
+                                    <input type="text" value={newPerson.name} onChange={(e) => setNewPerson({ ...newPerson, name: e.target.value })} className="dash-settings-input" placeholder="Name" />
+                                    <input type="tel" value={newPerson.phone} onChange={(e) => setNewPerson({ ...newPerson, phone: e.target.value })} className="dash-settings-input" placeholder="Phone" />
+                                    <input type="number" value={newPerson.age} onChange={(e) => setNewPerson({ ...newPerson, age: e.target.value })} className="dash-settings-input small" placeholder="Age" />
+                                    <button className="add-btn" onClick={() => { if (newPerson.name && newPerson.phone) { setPersonnel([...personnel, { id: Date.now(), ...newPerson }]); setNewPerson({ name: '', phone: '', age: '' }); } }}><Plus size={18} /></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Users Management */}
+                {settingsTab === 'users' && (
+                    <div className="dash-settings-section">
+                        <h2>User Management</h2>
+                        {usersLoading ? (
+                            <div className="loading-state">Loading users...</div>
+                        ) : (
+                            <div className="users-table-container">
+                                <table className="users-table">
+                                    <thead>
+                                        <tr>
+                                            <th>User</th>
+                                            <th>Role</th>
+                                            <th>Shift</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {allUsers.map(u => (
+                                            <tr key={u.id} className={!u.is_active ? 'inactive-row' : ''}>
+                                                <td>
+                                                    <div className="user-cell">
+                                                        <div className="user-cell-avatar">{u.username.charAt(0).toUpperCase()}</div>
+                                                        <div>
+                                                            <div className="user-cell-name">{u.username}</div>
+                                                            <div className="user-cell-email">{u.email}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td><span className={`role-tag ${u.role}`}>{u.role}</span></td>
+                                                <td>{u.shift}</td>
+                                                <td><span className={`status-tag ${u.is_active ? 'active' : 'inactive'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
+                                                <td>
+                                                    <div className="action-buttons">
+                                                        <button className="edit-btn" onClick={() => { setEditingUser(u); setUserFormData({ role: u.role, shift: u.shift, department: u.department, is_active: u.is_active }); }} title="Edit User"><Edit2 size={14} /></button>
+                                                        <button className="edit-btn" onClick={() => { setResetPasswordUser(u); setNewPassword(''); }} title="Reset Password"><Lock size={14} /></button>
+                                                        {u.role !== 'admin' && <button className="delete-btn" onClick={() => handleDeleteUser(u.id)} title="Delete User"><Trash2 size={14} /></button>}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {/* Edit User Modal */}
+                        {editingUser && (
+                            <div className="modal-overlay" onClick={() => setEditingUser(null)}>
+                                <div className="modal" onClick={e => e.stopPropagation()}>
+                                    <div className="modal-header">
+                                        <h3>Edit User: {editingUser.username}</h3>
+                                        <button className="modal-close" onClick={() => setEditingUser(null)}>×</button>
+                                    </div>
+                                    <div className="modal-body">
+                                        <div className="form-group">
+                                            <label>Role</label>
+                                            <select value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })} className="dash-settings-input">
+                                                <option value="officer">Officer</option>
+                                                <option value="admin">Admin</option>
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Shift</label>
+                                            <select value={userFormData.shift} onChange={e => setUserFormData({ ...userFormData, shift: e.target.value })} className="dash-settings-input">
+                                                <option value="08:00-20:00">Day Shift (08:00-20:00)</option>
+                                                <option value="20:00-08:00">Night Shift (20:00-08:00)</option>
+                                                <option value="Flexible">Flexible</option>
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Department</label>
+                                            <input type="text" value={userFormData.department || ''} onChange={e => setUserFormData({ ...userFormData, department: e.target.value })} className="dash-settings-input" />
+                                        </div>
+                                        <div className="form-group checkbox-group">
+                                            <label className="flex items-center gap-2">
+                                                <input type="checkbox" checked={userFormData.is_active} onChange={e => setUserFormData({ ...userFormData, is_active: e.target.checked })} />
+                                                Account Active
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div className="modal-footer">
+                                        <button className="btn-secondary" onClick={() => setEditingUser(null)}>Cancel</button>
+                                        <button className="btn-primary" onClick={handleUpdateUser}><Save size={16} /> Save Changes</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Reset Password Modal */}
+                        {resetPasswordUser && (
+                            <div className="modal-overlay" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>
+                                <div className="modal" onClick={e => e.stopPropagation()}>
+                                    <div className="modal-header">
+                                        <h3>Reset Password: {resetPasswordUser.username}</h3>
+                                        <button className="modal-close" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>×</button>
+                                    </div>
+                                    <div className="modal-body">
+                                        <div className="form-group">
+                                            <label>New Password</label>
+                                            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="dash-settings-input" placeholder="Enter new password (min 6 chars)" />
+                                        </div>
+                                    </div>
+                                    <div className="modal-footer">
+                                        <button className="btn-secondary" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>Cancel</button>
+                                        <button className="btn-primary" onClick={handleResetPassword}><Lock size={16} /> Reset Password</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div >
+        );
+    };
+
     return (
         <div className="min-h-screen bg-gray-100">
             <div className="w-full bg-slate-900 border-b border-teal-900">
@@ -713,24 +1040,27 @@ const Dashboard = ({ user, onLogout }) => {
                     </div>
                 </div>
                 {showProfile && (
-                    <div className="absolute top-16 right-4 z-50">
-                        <div className="profile-dropdown banner-dropdown">
-                            <div className="profile-header"><div className="profile-avatar large"><User size={28} /></div><div className="profile-info"><h4>{userProfile.name}</h4><span className="role-badge">{userProfile.role}</span></div></div>
-                            <div className="profile-details">
-                                <div className="detail-item"><Mail size={16} /><span>{userProfile.email}</span></div>
-                                <div className="detail-item"><Phone size={16} /><span>{userProfile.phone}</span></div>
-                                <div className="detail-item"><Shield size={16} /><span>{userProfile.department}</span></div>
-                                <div className="detail-item"><Clock size={16} /><span>Shift: {userProfile.shift}</span></div>
-                            </div>
-                            <div className="profile-footer">
-                                <button className="btn-secondary"><Settings size={16} /> Settings</button>
-                                <button className="logout-btn" onClick={onLogout}>
-                                    <span className="logout-btn-text">Log Out</span>
-                                    <span className="logout-btn-icon"><PersonStanding size={18} /></span>
-                                </button>
+                    <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowProfile(false)}></div>
+                        <div className="absolute top-16 right-4 z-50">
+                            <div className="profile-dropdown banner-dropdown">
+                                <div className="profile-header"><div className="profile-avatar large"><User size={28} /></div><div className="profile-info"><h4>{userProfile.name}</h4><span className="role-badge">{userProfile.role}</span></div></div>
+                                <div className="profile-details">
+                                    <div className="detail-item"><Mail size={16} /><span>{userProfile.email}</span></div>
+                                    <div className="detail-item"><Phone size={16} /><span>{userProfile.phone}</span></div>
+                                    <div className="detail-item"><Shield size={16} /><span>{userProfile.department}</span></div>
+                                    <div className="detail-item"><Clock size={16} /><span>Shift: {userProfile.shift}</span></div>
+                                </div>
+                                <div className="profile-footer">
+                                    {isAdmin && <button className="btn-secondary" onClick={() => { setActiveTab('settings'); setShowProfile(false); }}><Settings size={16} /> Settings</button>}
+                                    <button className="logout-btn" onClick={onLogout}>
+                                        <span className="logout-btn-text">Log Out</span>
+                                        <span className="logout-btn-icon"><PersonStanding size={18} /></span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </>
                 )}
             </div>
             <main className="main-content">
@@ -738,6 +1068,11 @@ const Dashboard = ({ user, onLogout }) => {
                 {activeTab === 'video' && renderVideoAnalysis()}
                 {activeTab === 'live' && renderLiveMonitoring()}
                 {activeTab === 'alerts' && renderAlertSettings()}
+                {activeTab === 'settings' && isAdmin && (
+                    <div className="p-6">
+                        {renderSettings()}
+                    </div>
+                )}
             </main>
         </div>
     );

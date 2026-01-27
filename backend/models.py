@@ -35,7 +35,7 @@ class UserService:
     COLLECTION = 'users'
     
     @staticmethod
-    def create_user(username, email, password_hash, role='officer', phone='', shift='08:00-20:00', department='Security Operations'):
+    def create_user(username, email, password_hash, role='officer', phone='', shift='08:00-20:00', department='Security Operations', google_uid='', profile_complete=True):
         """Create a new user document"""
         if not db: return None
             
@@ -48,6 +48,8 @@ class UserService:
             'shift': shift,
             'department': department,
             'is_active': True,
+            'google_uid': google_uid,
+            'profile_complete': profile_complete,
             'created_at': datetime.utcnow()
         }
         

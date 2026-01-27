@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Dashboard from './Dashboard';
 import Auth from './Auth';
+import ProfileCompletion from './ProfileCompletion';
 import './index.css';
 
 function App() {
@@ -33,6 +34,10 @@ function App() {
     setUser(null);
   };
 
+  const handleProfileComplete = (updatedUser) => {
+    setUser(updatedUser);
+  };
+
   if (loading) {
     return (
       <div className="loading-screen">
@@ -42,10 +47,17 @@ function App() {
     );
   }
 
+  // Not logged in -> show Auth
   if (!user) {
     return <Auth onLogin={handleLogin} />;
   }
 
+  // Logged in but profile not complete -> show ProfileCompletion
+  if (user.profile_complete === false) {
+    return <ProfileCompletion user={user} onComplete={handleProfileComplete} />;
+  }
+
+  // Logged in and profile complete -> show Dashboard
   return <Dashboard user={user} onLogout={handleLogout} />;
 }
 
