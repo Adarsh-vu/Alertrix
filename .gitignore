@@ -69,3 +69,6 @@ logs/
 # Local documentation & scripts
 *.docx
 *.bat
+
+# Secrets
+*firebase-credentials.json

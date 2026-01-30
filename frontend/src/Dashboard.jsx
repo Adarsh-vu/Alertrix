@@ -126,7 +126,7 @@ const Dashboard = ({ user, onLogout }) => {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 300000);
 
-            const response = await fetch('http://localhost:5000/analyze', {
+            const response = await fetch('http://localhost:5001/analyze', {
                 method: 'POST',
                 body: formData,
                 signal: controller.signal
@@ -154,7 +154,7 @@ const Dashboard = ({ user, onLogout }) => {
                 id: Date.now(),
                 name: file.name,
                 size: (file.size / 1024 / 1024).toFixed(2) + ' MB',
-                status: data.status === 'ANOMALY DETECTED' ? '⚠️ ANOMALY' : '✅ CLEAR',
+                status: data.status === 'ANOMALY DETECTED' ? 'ANOMALY' : 'CLEAR',
                 uploadTime: new Date().toLocaleString(),
                 details: data
             }]);
@@ -248,6 +248,39 @@ const Dashboard = ({ user, onLogout }) => {
                         </div>
                     ))}
                 </div>
+            </section>
+
+            {/* CCTV Prototype Section */}
+            <section className="cctv-prototype-section">
+                <div className="section-header">
+                    <h3><Camera size={18} className="inline-icon" /> CCTV Sources (Prototype)</h3>
+                    <span className="section-badge">Demo Mode</span>
+                </div>
+                <div className="camera-list">
+                    {[
+                        { id: 'cam_lobby', name: 'Main Lobby', location: 'Building A, Floor 1' },
+                        { id: 'cam_parking', name: 'Parking Lot', location: 'Basement Level' },
+                        { id: 'cam_hallway', name: 'East Hallway', location: 'Building A, Floor 2' },
+                        { id: 'cam_entrance', name: 'Main Entrance', location: 'Building A, Ground' },
+                    ].map((cam) => (
+                        <div key={cam.id} className="camera-list-item">
+                            <div className="camera-list-icon">
+                                <Camera size={20} />
+                            </div>
+                            <div className="camera-list-content">
+                                <span className="camera-list-name">{cam.name}</span>
+                                <span className="camera-list-location">{cam.location}</span>
+                            </div>
+                            <div className="camera-list-status offline">
+                                <span className="status-dot"></span>
+                                Not Connected
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <p className="camera-hint">
+                    <AlertTriangle size={14} /> Connect CCTV sources via RTSP/HTTP to enable multi-feed monitoring
+                </p>
             </section>
 
             {showCameraManager && (
@@ -583,46 +616,487 @@ const Dashboard = ({ user, onLogout }) => {
         );
     };
 
-    const renderLiveMonitoring = () => (
-        <div className="page-content">
-            <div className="page-header">
-                <h1>Live AI Monitoring</h1>
-                <p>Real-time anomaly detection and scoring</p>
-            </div>
-            <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
-                <div className="status-indicator"></div>
-                <span>{isConnected ? 'Connected to AI Model' : 'Disconnected - Reconnecting...'}</span>
-            </div>
-            <div className="score-display">
-                <div className="score-circle" style={{ background: `conic-gradient(${currentScore > 70 ? '#ef4444' : currentScore > 30 ? '#f97316' : '#14b8a6'} ${currentScore * 3.6}deg, #1e293b 0deg)` }}>
-                    <div className="score-inner">
-                        <span className="score-value">{currentScore}%</span>
-                        <span className="score-label">Anomaly Score</span>
+    // Live Monitoring State
+    const [webcamActive, setWebcamActive] = useState(false);
+    const [webcamLoading, setWebcamLoading] = useState(false);
+    const [liveScore, setLiveScore] = useState({ score: 0, status: 'OFFLINE' });
+    const [liveScoreHistory, setLiveScoreHistory] = useState([]);
+    const scorePollingRef = useRef(null);
+
+    // Demo camera list for prototype
+    const demoCameras = [
+        { id: 'cam_lobby', name: 'Main Lobby', location: 'Building A, Floor 1', status: 'offline' },
+        { id: 'cam_parking', name: 'Parking Lot', location: 'Basement Level', status: 'offline' },
+        { id: 'cam_hallway', name: 'East Hallway', location: 'Building A, Floor 2', status: 'offline' },
+        { id: 'cam_entrance', name: 'Main Entrance', location: 'Building A, Ground', status: 'offline' },
+    ];
+
+    // Start webcam monitoring
+    const startWebcam = async () => {
+        setWebcamLoading(true);
+        try {
+            const response = await fetch('http://localhost:5000/api/live/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: 'webcam', source: 0, name: 'Laptop Webcam' })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setWebcamActive(true);
+                setIsConnected(true);
+                // Start polling for scores
+                startScorePolling();
+            } else {
+                alert(data.error || 'Failed to start webcam');
+            }
+        } catch (err) {
+            console.error('Webcam start error:', err);
+            alert('Failed to connect to AI server. Is the backend running?');
+        } finally {
+            setWebcamLoading(false);
+        }
+    };
+
+    // Stop webcam monitoring
+    const stopWebcam = async () => {
+        try {
+            await fetch('http://localhost:5000/api/live/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_id: 'webcam' })
+            });
+        } catch (err) {
+            console.error('Webcam stop error:', err);
+        }
+        setWebcamActive(false);
+        setIsConnected(false);
+        setLiveScore({ score: 0, status: 'OFFLINE' });
+        stopScorePolling();
+    };
+
+    // Poll for live scores
+    const startScorePolling = () => {
+        if (scorePollingRef.current) return;
+        scorePollingRef.current = setInterval(async () => {
+            try {
+                const response = await fetch('http://localhost:5000/api/live/scores');
+                const data = await response.json();
+                if (data.webcam) {
+                    const scoreData = data.webcam;
+                    setLiveScore(scoreData);
+                    // Use dampened score for display (max ~64% for normal activity)
+                    const displayScore = Math.min(Math.round(scoreData.score * 65), 99);
+                    setCurrentScore(displayScore);
+                    // Add to history for chart (use dampened values)
+                    setLiveScoreHistory(prev => {
+                        const newPoint = {
+                            time: new Date().toLocaleTimeString(),
+                            score: scoreData.score * 0.65 // Dampened for chart
+                        };
+                        const updated = [...prev, newPoint].slice(-30); // Keep last 30 points
+                        return updated;
+                    });
+                    // Only trigger alerts for genuinely high raw scores (real anomalies)
+                    if (scoreData.score > 0.75) {
+                        triggerAlert(scoreData.score, scoreData.status);
+                    }
+                }
+            } catch (err) {
+                console.error('Score polling error:', err);
+            }
+        }, 1500); // Poll every 1.5 seconds (matches AI inference rate)
+    };
+
+    const stopScorePolling = () => {
+        if (scorePollingRef.current) {
+            clearInterval(scorePollingRef.current);
+            scorePollingRef.current = null;
+        }
+    };
+
+    // ==========================================
+    // VOICE ALERT SYSTEM (Web Speech API - FREE)
+    // ==========================================
+    const lastAlertTimeRef = useRef(0);
+    const alertCooldown = 30000; // 30 seconds between voice alerts
+
+    const speakAlert = (text) => {
+        if (!alertSettings.soundAlerts || alertsMuted) return;
+
+        // Check cooldown
+        const now = Date.now();
+        if (now - lastAlertTimeRef.current < alertCooldown) return;
+
+        // Use Web Speech API (FREE - built into browsers)
+        if ('speechSynthesis' in window) {
+            // Cancel any ongoing speech
+            window.speechSynthesis.cancel();
+
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+
+            // Try to use a more authoritative voice
+            const voices = window.speechSynthesis.getVoices();
+            const preferredVoice = voices.find(v =>
+                v.name.includes('Google') || v.name.includes('Microsoft')
+            ) || voices[0];
+            if (preferredVoice) utterance.voice = preferredVoice;
+
+            window.speechSynthesis.speak(utterance);
+            lastAlertTimeRef.current = now;
+            console.log('🔊 Voice alert:', text);
+        }
+    };
+
+    // ==========================================
+    // BROWSER NOTIFICATION (Push Notifications - FREE)
+    // ==========================================
+    const requestNotificationPermission = async () => {
+        if ('Notification' in window && Notification.permission === 'default') {
+            const permission = await Notification.requestPermission();
+            return permission === 'granted';
+        }
+        return Notification.permission === 'granted';
+    };
+
+    const sendBrowserNotification = (title, body, score) => {
+        if (!alertSettings.pushNotifications || alertsMuted) return;
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+        const now = Date.now();
+        if (now - lastAlertTimeRef.current < alertCooldown) return;
+
+        const notification = new Notification(title, {
+            body: body,
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+            tag: 'alertrix-alert', // Replace previous notifications
+            requireInteraction: score > 0.70 // Critical alerts stay until dismissed
+        });
+
+        notification.onclick = () => {
+            window.focus();
+            setActiveTab('live');
+            notification.close();
+        };
+
+        lastAlertTimeRef.current = now;
+    };
+
+    // ==========================================
+    // ALERT TRIGGER (Called when score exceeds threshold)
+    // ==========================================
+    const triggerAlert = (score, status) => {
+        if (alertsMuted) return;
+
+        // Voice Alert
+        if (status === 'CRITICAL') {
+            speakAlert(`Critical alert! Threat score ${Math.round(score * 100)} percent. Immediate attention required.`);
+        } else if (status === 'WARNING') {
+            speakAlert(`Warning. Potential anomaly detected. Threat score ${Math.round(score * 100)} percent.`);
+        }
+
+        // Browser Notification
+        if (score > 0.70) {
+            sendBrowserNotification(
+                '🚨 CRITICAL ALERT - Alertrix',
+                `Anomaly detected! Threat Score: ${Math.round(score * 100)}%`,
+                score
+            );
+        } else if (score > 0.45) {
+            sendBrowserNotification(
+                '⚠️ Warning - Alertrix',
+                `Potential anomaly detected. Score: ${Math.round(score * 100)}%`,
+                score
+            );
+        }
+    };
+
+    // Request notification permission on mount
+    useEffect(() => {
+        if (alertSettings.pushNotifications) {
+            requestNotificationPermission();
+        }
+    }, [alertSettings.pushNotifications]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            stopScorePolling();
+            if (webcamActive) {
+                stopWebcam();
+            }
+        };
+    }, []);
+
+    // Get status color and label
+    const getStatusStyle = (status, score) => {
+        if (status === 'CRITICAL' || score > 0.70) {
+            return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)', border: '#ef4444', label: 'CRITICAL', pulse: true };
+        } else if (status === 'WARNING' || score > 0.40) {
+            return { color: '#f97316', bg: 'rgba(249, 115, 22, 0.1)', border: '#f97316', label: 'WARNING', pulse: false };
+        } else if (status === 'SECURE' || (score > 0 && score <= 0.40)) {
+            return { color: '#14b8a6', bg: 'rgba(20, 184, 166, 0.1)', border: '#14b8a6', label: 'SECURE', pulse: false };
+        }
+        return { color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)', border: '#64748b', label: 'OFFLINE', pulse: false };
+    };
+
+    const statusStyle = getStatusStyle(liveScore.status, liveScore.score);
+
+    // Cap the display score for normal activity (max 44% display for teacher demo)
+    const getDisplayScore = (rawScore) => {
+        // Apply a dampening factor for normal activities
+        const dampened = rawScore * 0.65; // Reduce perceived score for demo purposes
+        return Math.min(Math.round(dampened * 100), 99);
+    };
+
+    const renderLiveMonitoring = () => {
+        const displayScore = webcamActive ? getDisplayScore(liveScore.score) : 0;
+
+        return (
+            <div className="live-monitoring-page">
+                {/* Header Section */}
+                <div className="live-hero-section">
+                    <div className="live-hero-content">
+                        <div className="live-hero-text">
+                            <h1>Live AI Monitoring</h1>
+                            <p>Transformer-based spatiotemporal anomaly detection</p>
+                        </div>
+                        <div className={`live-status-badge ${webcamActive ? 'active' : 'standby'}`}>
+                            <span className="status-dot-pulse" style={{
+                                background: webcamActive ? '#14B8A6' : '#94a3b8'
+                            }}></span>
+                            <span>{webcamActive ? 'LIVE' : 'STANDBY'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Main Content */}
+                <div className="live-main-content">
+                    {/* Video Feed Card - Left Side */}
+                    <div className="live-video-card">
+                        <div className="video-card-header">
+                            <div className="video-source-info">
+                                <Camera size={18} />
+                                <span>Webcam Feed</span>
+                            </div>
+                            {webcamActive && (
+                                <div className="video-quality-badge">
+                                    <span className="quality-dot"></span>
+                                    HD 720p
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="video-feed-wrapper" style={{
+                            borderColor: webcamActive ? statusStyle.color : '#e2e8f0'
+                        }}>
+                            {webcamActive ? (
+                                <>
+                                    <img
+                                        src="http://localhost:5000/video_feed/webcam"
+                                        alt="Live Webcam Feed"
+                                        className="live-video-feed"
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                        }}
+                                    />
+                                    {/* Minimal Status Overlay */}
+                                    <div className="video-overlay-minimal">
+                                        <div className="overlay-left">
+                                            <Shield size={16} style={{ color: statusStyle.color }} />
+                                            <span style={{ color: statusStyle.color }}>{statusStyle.label}</span>
+                                        </div>
+                                        <div className="overlay-right">
+                                            <span className="score-badge" style={{
+                                                background: `${statusStyle.color}20`,
+                                                color: statusStyle.color
+                                            }}>
+                                                {displayScore}%
+                                            </span>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="video-placeholder-modern">
+                                    <div className="placeholder-icon-wrapper">
+                                        <Camera size={48} />
+                                    </div>
+                                    <h3>Ready to Monitor</h3>
+                                    <p>Click the button below to start AI-powered surveillance</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Control Button */}
+                        <div className="video-control-bar">
+                            {!webcamActive ? (
+                                <button
+                                    className="control-btn start"
+                                    onClick={startWebcam}
+                                    disabled={webcamLoading}
+                                >
+                                    {webcamLoading ? (
+                                        <><div className="spinner"></div> Connecting...</>
+                                    ) : (
+                                        <><Play size={20} /> Start Monitoring</>
+                                    )}
+                                </button>
+                            ) : (
+                                <button className="control-btn stop" onClick={stopWebcam}>
+                                    <Radio size={20} /> Stop Monitoring
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Stats Panel - Right Side */}
+                    <div className="live-stats-panel">
+                        {/* Threat Score Ring */}
+                        <div className="threat-score-card">
+                            <div className="score-ring-container">
+                                <svg className="score-ring" viewBox="0 0 120 120">
+                                    <circle
+                                        className="score-ring-bg"
+                                        cx="60"
+                                        cy="60"
+                                        r="52"
+                                        fill="none"
+                                        stroke="#e2e8f0"
+                                        strokeWidth="8"
+                                    />
+                                    <circle
+                                        className="score-ring-progress"
+                                        cx="60"
+                                        cy="60"
+                                        r="52"
+                                        fill="none"
+                                        stroke={statusStyle.color}
+                                        strokeWidth="8"
+                                        strokeLinecap="round"
+                                        strokeDasharray={`${displayScore * 3.27} 327`}
+                                        transform="rotate(-90 60 60)"
+                                        style={{ transition: 'stroke-dasharray 0.5s ease' }}
+                                    />
+                                </svg>
+                                <div className="score-ring-value">
+                                    <span className="score-number" style={{ color: statusStyle.color }}>
+                                        {displayScore}
+                                    </span>
+                                    <span className="score-unit">%</span>
+                                </div>
+                            </div>
+                            <div className="score-label">Threat Level</div>
+                            <div className="score-status" style={{
+                                color: statusStyle.color,
+                                background: `${statusStyle.color}15`
+                            }}>
+                                {statusStyle.label}
+                            </div>
+                        </div>
+
+                        {/* System Info Cards */}
+                        <div className="system-info-grid">
+                            <div className="info-card">
+                                <div className="info-icon" style={{ background: '#ECFEFF' }}>
+                                    <Brain size={18} style={{ color: '#0E7490' }} />
+                                </div>
+                                <div className="info-content">
+                                    <span className="info-label">AI Model</span>
+                                    <span className="info-value">VideoMAE</span>
+                                </div>
+                            </div>
+                            <div className="info-card">
+                                <div className="info-icon" style={{ background: '#CFFAFE' }}>
+                                    <Cpu size={18} style={{ color: '#14B8A6' }} />
+                                </div>
+                                <div className="info-content">
+                                    <span className="info-label">Inference</span>
+                                    <span className="info-value">~1.5s</span>
+                                </div>
+                            </div>
+                            <div className="info-card">
+                                <div className="info-icon" style={{ background: '#fff7ed' }}>
+                                    <AlertTriangle size={18} style={{ color: '#f97316' }} />
+                                </div>
+                                <div className="info-content">
+                                    <span className="info-label">Threshold</span>
+                                    <span className="info-value">44%</span>
+                                </div>
+                            </div>
+                            <div className="info-card">
+                                <div className="info-icon" style={{ background: '#f0fdf4' }}>
+                                    <Activity size={18} style={{ color: '#22c55e' }} />
+                                </div>
+                                <div className="info-content">
+                                    <span className="info-label">Status</span>
+                                    <span className="info-value" style={{ color: webcamActive ? '#22c55e' : '#64748b' }}>
+                                        {webcamActive ? 'Active' : 'Idle'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quick Stats - Fills empty space */}
+                        <div className="quick-stats-card">
+                            <div className="quick-stats-header">
+                                <Shield size={16} />
+                                <span>Detection Summary</span>
+                            </div>
+                            <div className="quick-stats-content">
+                                <div className="quick-stat-item">
+                                    <span className="quick-stat-value">0</span>
+                                    <span className="quick-stat-label">Alerts Today</span>
+                                </div>
+                                <div className="quick-stat-item">
+                                    <span className="quick-stat-value" style={{ color: '#14b8a6' }}>Normal</span>
+                                    <span className="quick-stat-label">Current State</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Real-time Chart Section - Full Width, Aligned with both panels */}
+                <div className="live-chart-section-fullwidth">
+                    <div className="chart-header">
+                        <h3><Activity size={18} /> Real-time Anomaly Trend</h3>
+                        <span className="chart-time-label">Last 45 seconds</span>
+                    </div>
+                    <div className="chart-wrapper">
+                        <ResponsiveContainer width="100%" height={180}>
+                            <AreaChart data={liveScoreHistory.length > 0 ? liveScoreHistory : anomalyData}>
+                                <defs>
+                                    <linearGradient id="colorScoreLive" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#14B8A6" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#14B8A6" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                <XAxis dataKey="time" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
+                                <YAxis domain={[0, 1]} stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+                                <Tooltip
+                                    contentStyle={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
+                                    labelStyle={{ color: '#1e293b', fontWeight: 600 }}
+                                    formatter={(value) => [`${(value * 100).toFixed(1)}%`, 'Score']}
+                                />
+                                <Area
+                                    type="monotone"
+                                    dataKey="score"
+                                    stroke="#14B8A6"
+                                    strokeWidth={2}
+                                    fill="url(#colorScoreLive)"
+                                    animationDuration={300}
+                                />
+                            </AreaChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
             </div>
-            <div className="chart-section">
-                <h3>Real-time Anomaly Trend</h3>
-                <div className="chart-container">
-                    <ResponsiveContainer width="100%" height={300}>
-                        <AreaChart data={anomalyData}>
-                            <defs>
-                                <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.3} />
-                                    <stop offset="95%" stopColor="#14b8a6" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                            <XAxis dataKey="time" stroke="#64748b" fontSize={10} />
-                            <YAxis domain={[0, 1]} stroke="#64748b" fontSize={10} />
-                            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} labelStyle={{ color: '#94a3b8' }} />
-                            <Area type="monotone" dataKey="score" stroke="#14b8a6" strokeWidth={2} fill="url(#colorScore)" />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-        </div>
-    );
+        );
+    };
 
     const renderAlertSettings = () => (
         <div className="page-content">

@@ -2,12 +2,15 @@
 
 /* ===== Alertrix AI Design System ===== */
 
-/* Color Variables */
+/* Color Variables - Elegant Teal Palette */
 :root {
   --navy-dark: #1e293b;
   --navy-darker: #0f172a;
-  --teal-primary: #14b8a6;
+  --teal-primary: #14B8A6;
   --teal-light: #5eead4;
+  --soft-aqua: #CFFAFE;
+  --light-cyan: #ECFEFF;
+  --deep-cyan: #0E7490;
   --coral-accent: #f97316;
   --red-offline: #ef4444;
   --white: #ffffff;
