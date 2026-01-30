@@ -77,15 +77,14 @@ const Dashboard = ({ user, onLogout }) => {
     const [showCameraManager, setShowCameraManager] = useState(false);
     const [editingCameraId, setEditingCameraId] = useState(null);
 
-    // Personnel on duty
-    const [personnel, setPersonnel] = useState([
-        { id: 1, name: 'Rajesh Kumar', phone: '+91 98765 11111', age: 35 },
-        { id: 2, name: 'Amit Singh', phone: '+91 98765 22222', age: 28 },
-        { id: 3, name: 'Priya Sharma', phone: '+91 98765 33333', age: 32 },
-    ]);
+    // Personnel on duty (loaded from database)
+    const [personnel, setPersonnel] = useState([]);
+    const [personnelLoading, setPersonnelLoading] = useState(false);
+    const [personnelFetched, setPersonnelFetched] = useState(false);
     const [showPersonnelManager, setShowPersonnelManager] = useState(false);
     const [editingPersonId, setEditingPersonId] = useState(null);
-    const [newPerson, setNewPerson] = useState({ name: '', phone: '', age: '' });
+    const [newPerson, setNewPerson] = useState({ name: '', phone: '', age: '', address: '', aadhaar: '' });
+    const [aadhaarError, setAadhaarError] = useState('');
 
     // WebSocket connection (PHASE 3)
     /*
@@ -765,7 +764,123 @@ const Dashboard = ({ user, onLogout }) => {
         if (activeTab === 'settings' && isAdmin && allUsers.length === 0 && !usersLoading) {
             fetchUsers();
         }
+        if (activeTab === 'settings' && isAdmin && !personnelFetched && !personnelLoading) {
+            fetchPersonnel();
+        }
     }, [activeTab, isAdmin]);
+
+    // Personnel API functions
+    const fetchPersonnel = async () => {
+        setPersonnelLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/admin/personnel', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setPersonnel(data.personnel || []);
+            }
+            setPersonnelFetched(true);
+        } catch (err) {
+            console.error('Failed to fetch personnel:', err);
+        } finally {
+            setPersonnelLoading(false);
+        }
+    };
+
+    const validateAadhaar = (aadhaar) => {
+        if (!aadhaar) return false; // Required
+        const cleaned = aadhaar.replace(/\s+/g, '');
+        return /^\d{12}$/.test(cleaned);
+    };
+
+    const handleAddPersonnel = async () => {
+        if (!newPerson.name || !newPerson.phone) {
+            alert('Name and phone are required');
+            return;
+        }
+        if (!newPerson.age) {
+            alert('Age is required');
+            return;
+        }
+        if (!newPerson.address) {
+            alert('Address is required');
+            return;
+        }
+        if (!newPerson.aadhaar) {
+            setAadhaarError('Aadhaar is required');
+            return;
+        }
+        if (!validateAadhaar(newPerson.aadhaar)) {
+            setAadhaarError('Aadhaar must be exactly 12 digits');
+            return;
+        }
+        setAadhaarError('');
+
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/admin/personnel', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(newPerson)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setPersonnel([data.personnel, ...personnel]);
+                setNewPerson({ name: '', phone: '', age: '', address: '', aadhaar: '' });
+            } else {
+                alert(data.error || 'Failed to add personnel');
+            }
+        } catch (err) {
+            console.error('Add personnel error:', err);
+        }
+    };
+
+    const handleUpdatePersonnel = async (personId, updates) => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:5000/api/admin/personnel/${personId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(updates)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setPersonnel(personnel.map(p => p.id === personId ? data.personnel : p));
+                setEditingPersonId(null);
+            } else {
+                alert(data.error || 'Failed to update');
+            }
+        } catch (err) {
+            console.error('Update personnel error:', err);
+        }
+    };
+
+    const handleDeletePersonnel = async (personId) => {
+        if (!confirm('Delete this personnel?')) return;
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:5000/api/admin/personnel/${personId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                setPersonnel(personnel.filter(p => p.id !== personId));
+            } else {
+                const data = await response.json();
+                alert(data.error || 'Failed to delete');
+            }
+        } catch (err) {
+            console.error('Delete personnel error:', err);
+        }
+    };
 
     const renderSettings = () => {
         return (
@@ -821,6 +936,7 @@ const Dashboard = ({ user, onLogout }) => {
                                         <button className="edit-btn" onClick={() => setEditingCameraId(editingCameraId === camera.id ? null : camera.id)}>
                                             {editingCameraId === camera.id ? <Check size={16} /> : <Edit2 size={16} />}
                                         </button>
+                                        <button className="delete-btn" onClick={() => setCameras(cameras.filter(c => c.id !== camera.id))}><Trash2 size={16} /></button>
                                     </div>
                                 </div>
                             ))}
@@ -832,158 +948,186 @@ const Dashboard = ({ user, onLogout }) => {
                 {settingsTab === 'personnel' && (
                     <div className="dash-settings-section">
                         <h2>Personnel on Duty</h2>
-                        <div className="dash-settings-list">
-                            {personnel.map(person => (
-                                <div key={person.id} className="dash-settings-item">
-                                    <div className="person-avatar">{person.name.charAt(0)}</div>
-                                    <div className="settings-item-content">
-                                        {editingPersonId === person.id ? (
-                                            <>
-                                                <input type="text" value={person.name} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, name: e.target.value } : p))} className="dash-settings-input" />
-                                                <input type="tel" value={person.phone} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, phone: e.target.value } : p))} className="dash-settings-input" />
-                                                <input type="number" value={person.age} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, age: e.target.value } : p))} className="dash-settings-input small" />
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="settings-name">{person.name}</span>
-                                                <span className="settings-detail">{person.phone} • Age: {person.age}</span>
-                                            </>
-                                        )}
+                        {personnelLoading ? (
+                            <div className="loading-state">Loading personnel...</div>
+                        ) : (
+                            <div className="dash-settings-list">
+                                {personnel.length === 0 && (
+                                    <div className="loading-state" style={{ color: '#64748b' }}>No personnel added yet. Add your first personnel below.</div>
+                                )}
+                                {personnel.map(person => (
+                                    <div key={person.id} className="dash-settings-item" style={{ flexDirection: 'row', alignItems: 'flex-start', gap: '1rem', justifyContent: 'flex-start', textAlign: 'left' }}>
+                                        <div className="person-avatar" style={{ flexShrink: 0 }}>{person.name?.charAt(0) || '?'}</div>
+                                        <div className="settings-item-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left', minWidth: 0 }}>
+                                            {editingPersonId === person.id ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
+                                                    <input type="text" value={person.name || ''} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, name: e.target.value } : p))} className="dash-settings-input" placeholder="Name" />
+                                                    <input type="tel" value={person.phone || ''} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, phone: e.target.value } : p))} className="dash-settings-input" placeholder="Phone" />
+                                                    <input type="number" value={person.age || ''} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, age: e.target.value } : p))} className="dash-settings-input small" placeholder="Age" />
+                                                    <input type="text" value={person.address || ''} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, address: e.target.value } : p))} className="dash-settings-input" placeholder="Address" />
+                                                    <input type="text" value={person.aadhaar || ''} onChange={(e) => setPersonnel(personnel.map(p => p.id === person.id ? { ...p, aadhaar: e.target.value } : p))} className="dash-settings-input" placeholder="Aadhaar (12 digits)" maxLength="14" />
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span className="settings-name" style={{ textAlign: 'left' }}>{person.name}</span>
+                                                    <span className="settings-detail" style={{ textAlign: 'left' }}>{person.phone} • Age: {person.age || 'N/A'}</span>
+                                                    {person.address && <span className="settings-detail" style={{ textAlign: 'left', marginTop: '0.25rem' }}>📍 {person.address}</span>}
+                                                    {person.aadhaar && <span className="settings-detail" style={{ textAlign: 'left', marginTop: '0.25rem', fontFamily: 'monospace' }}>Aadhaar: {person.aadhaar.replace(/(\d{4})(\d{4})(\d{4})/, '$1 $2 $3')}</span>}
+                                                </>
+                                            )}
+                                        </div>
+                                        <div className="settings-actions" style={{ flexShrink: 0 }}>
+                                            <button className="edit-btn" onClick={() => {
+                                                if (editingPersonId === person.id) {
+                                                    // Save changes
+                                                    handleUpdatePersonnel(person.id, { name: person.name, phone: person.phone, age: person.age, address: person.address, aadhaar: person.aadhaar });
+                                                } else {
+                                                    setEditingPersonId(person.id);
+                                                }
+                                            }}>
+                                                {editingPersonId === person.id ? <Check size={16} /> : <Edit2 size={16} />}
+                                            </button>
+                                            <button className="delete-btn" onClick={() => handleDeletePersonnel(person.id)}><Trash2 size={16} /></button>
+                                        </div>
                                     </div>
-                                    <div className="settings-actions">
-                                        <button className="edit-btn" onClick={() => setEditingPersonId(editingPersonId === person.id ? null : person.id)}>
-                                            {editingPersonId === person.id ? <Check size={16} /> : <Edit2 size={16} />}
-                                        </button>
-                                        <button className="delete-btn" onClick={() => setPersonnel(personnel.filter(p => p.id !== person.id))}><Trash2 size={16} /></button>
+                                ))}
+                                <div className="add-person-form" style={{ marginTop: '1.5rem', padding: '1.5rem', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                    <h4 style={{ color: '#0d9488', marginBottom: '1rem', fontSize: '1rem', fontWeight: '700' }}>Add New Personnel</h4>
+                                    <div className="add-form-row" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start' }}>
+                                        <input type="text" value={newPerson.name} onChange={(e) => setNewPerson({ ...newPerson, name: e.target.value })} className="dash-settings-input" placeholder="Name *" style={{ flex: '1 1 180px' }} />
+                                        <input type="tel" value={newPerson.phone} onChange={(e) => setNewPerson({ ...newPerson, phone: e.target.value })} className="dash-settings-input" placeholder="Phone *" style={{ flex: '1 1 160px' }} />
+                                        <input type="number" value={newPerson.age} onChange={(e) => setNewPerson({ ...newPerson, age: e.target.value })} className="dash-settings-input small" placeholder="Age *" style={{ flex: '0 0 80px' }} />
                                     </div>
-                                </div>
-                            ))}
-                            <div className="add-person-form">
-                                <h4>Add New Personnel</h4>
-                                <div className="add-form-row">
-                                    <input type="text" value={newPerson.name} onChange={(e) => setNewPerson({ ...newPerson, name: e.target.value })} className="dash-settings-input" placeholder="Name" />
-                                    <input type="tel" value={newPerson.phone} onChange={(e) => setNewPerson({ ...newPerson, phone: e.target.value })} className="dash-settings-input" placeholder="Phone" />
-                                    <input type="number" value={newPerson.age} onChange={(e) => setNewPerson({ ...newPerson, age: e.target.value })} className="dash-settings-input small" placeholder="Age" />
-                                    <button className="add-btn" onClick={() => { if (newPerson.name && newPerson.phone) { setPersonnel([...personnel, { id: Date.now(), ...newPerson }]); setNewPerson({ name: '', phone: '', age: '' }); } }}><Plus size={18} /></button>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '0.75rem', alignItems: 'flex-start' }}>
+                                        <input type="text" value={newPerson.address} onChange={(e) => setNewPerson({ ...newPerson, address: e.target.value })} className="dash-settings-input" placeholder="Address *" style={{ flex: '1 1 300px' }} />
+                                        <div style={{ flex: '0 0 200px', position: 'relative' }}>
+                                            <input type="text" value={newPerson.aadhaar} onChange={(e) => { setNewPerson({ ...newPerson, aadhaar: e.target.value }); setAadhaarError(''); }} className="dash-settings-input" placeholder="Aadhaar * (12 digits)" maxLength="14" style={{ width: '100%', borderColor: aadhaarError ? '#ef4444' : undefined }} />
+                                            {aadhaarError && <span style={{ color: '#ef4444', fontSize: '0.75rem', position: 'absolute', bottom: '-18px', left: '0' }}>{aadhaarError}</span>}
+                                        </div>
+                                        <button className="add-btn" onClick={handleAddPersonnel} style={{ width: '48px', height: '48px', borderRadius: '10px', background: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Plus size={20} /></button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        )}
                     </div>
-                )}
+                )
+                }
 
                 {/* Users Management */}
-                {settingsTab === 'users' && (
-                    <div className="dash-settings-section">
-                        <h2>User Management</h2>
-                        {usersLoading ? (
-                            <div className="loading-state">Loading users...</div>
-                        ) : (
-                            <div className="users-table-container">
-                                <table className="users-table">
-                                    <thead>
-                                        <tr>
-                                            <th>User</th>
-                                            <th>Role</th>
-                                            <th>Shift</th>
-                                            <th>Status</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {allUsers.map(u => (
-                                            <tr key={u.id} className={!u.is_active ? 'inactive-row' : ''}>
-                                                <td>
-                                                    <div className="user-cell">
-                                                        <div className="user-cell-avatar">{u.username.charAt(0).toUpperCase()}</div>
-                                                        <div>
-                                                            <div className="user-cell-name">{u.username}</div>
-                                                            <div className="user-cell-email">{u.email}</div>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td><span className={`role-tag ${u.role}`}>{u.role}</span></td>
-                                                <td>{u.shift}</td>
-                                                <td><span className={`status-tag ${u.is_active ? 'active' : 'inactive'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
-                                                <td>
-                                                    <div className="action-buttons">
-                                                        <button className="edit-btn" onClick={() => { setEditingUser(u); setUserFormData({ role: u.role, shift: u.shift, department: u.department, is_active: u.is_active }); }} title="Edit User"><Edit2 size={14} /></button>
-                                                        <button className="edit-btn" onClick={() => { setResetPasswordUser(u); setNewPassword(''); }} title="Reset Password"><Lock size={14} /></button>
-                                                        {u.role !== 'admin' && <button className="delete-btn" onClick={() => handleDeleteUser(u.id)} title="Delete User"><Trash2 size={14} /></button>}
-                                                    </div>
-                                                </td>
+                {
+                    settingsTab === 'users' && (
+                        <div className="dash-settings-section">
+                            <h2>User Management</h2>
+                            {usersLoading ? (
+                                <div className="loading-state">Loading users...</div>
+                            ) : (
+                                <div className="users-table-container">
+                                    <table className="users-table">
+                                        <thead>
+                                            <tr>
+                                                <th>User</th>
+                                                <th>Role</th>
+                                                <th>Shift</th>
+                                                <th>Status</th>
+                                                <th>Actions</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                                        </thead>
+                                        <tbody>
+                                            {allUsers.map(u => (
+                                                <tr key={u.id} className={!u.is_active ? 'inactive-row' : ''}>
+                                                    <td>
+                                                        <div className="user-cell">
+                                                            <div className="user-cell-avatar">{u.username.charAt(0).toUpperCase()}</div>
+                                                            <div>
+                                                                <div className="user-cell-name">{u.username}</div>
+                                                                <div className="user-cell-email">{u.email}</div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td><span className={`role-tag ${u.role}`}>{u.role}</span></td>
+                                                    <td>{u.shift}</td>
+                                                    <td><span className={`status-tag ${u.is_active ? 'active' : 'inactive'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
+                                                    <td>
+                                                        <div className="action-buttons">
+                                                            <button className="edit-btn" onClick={() => { setEditingUser(u); setUserFormData({ role: u.role, shift: u.shift, department: u.department, is_active: u.is_active }); }} title="Edit User"><Edit2 size={14} /></button>
+                                                            <button className="edit-btn" onClick={() => { setResetPasswordUser(u); setNewPassword(''); }} title="Reset Password"><Lock size={14} /></button>
+                                                            {u.role !== 'admin' && <button className="delete-btn" onClick={() => handleDeleteUser(u.id)} title="Delete User"><Trash2 size={14} /></button>}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
 
-                        {/* Edit User Modal */}
-                        {editingUser && (
-                            <div className="modal-overlay" onClick={() => setEditingUser(null)}>
-                                <div className="modal" onClick={e => e.stopPropagation()}>
-                                    <div className="modal-header">
-                                        <h3>Edit User: {editingUser.username}</h3>
-                                        <button className="modal-close" onClick={() => setEditingUser(null)}>×</button>
-                                    </div>
-                                    <div className="modal-body">
-                                        <div className="form-group">
-                                            <label>Role</label>
-                                            <select value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })} className="dash-settings-input">
-                                                <option value="officer">Officer</option>
-                                                <option value="admin">Admin</option>
-                                            </select>
+                            {/* Edit User Modal */}
+                            {editingUser && (
+                                <div className="modal-overlay" onClick={() => setEditingUser(null)}>
+                                    <div className="modal" onClick={e => e.stopPropagation()}>
+                                        <div className="modal-header">
+                                            <h3>Edit User: {editingUser.username}</h3>
+                                            <button className="modal-close" onClick={() => setEditingUser(null)}>×</button>
                                         </div>
-                                        <div className="form-group">
-                                            <label>Shift</label>
-                                            <select value={userFormData.shift} onChange={e => setUserFormData({ ...userFormData, shift: e.target.value })} className="dash-settings-input">
-                                                <option value="08:00-20:00">Day Shift (08:00-20:00)</option>
-                                                <option value="20:00-08:00">Night Shift (20:00-08:00)</option>
-                                                <option value="Flexible">Flexible</option>
-                                            </select>
+                                        <div className="modal-body">
+                                            <div className="form-group">
+                                                <label>Role</label>
+                                                <select value={userFormData.role} onChange={e => setUserFormData({ ...userFormData, role: e.target.value })} className="dash-settings-input">
+                                                    <option value="officer">Officer</option>
+                                                    <option value="admin">Admin</option>
+                                                </select>
+                                            </div>
+                                            <div className="form-group">
+                                                <label>Shift</label>
+                                                <select value={userFormData.shift} onChange={e => setUserFormData({ ...userFormData, shift: e.target.value })} className="dash-settings-input">
+                                                    <option value="08:00-20:00">Day Shift (08:00-20:00)</option>
+                                                    <option value="20:00-08:00">Night Shift (20:00-08:00)</option>
+                                                    <option value="Flexible">Flexible</option>
+                                                </select>
+                                            </div>
+                                            <div className="form-group">
+                                                <label>Department</label>
+                                                <input type="text" value={userFormData.department || ''} onChange={e => setUserFormData({ ...userFormData, department: e.target.value })} className="dash-settings-input" />
+                                            </div>
+                                            <div className="form-group checkbox-group">
+                                                <label className="flex items-center gap-2">
+                                                    <input type="checkbox" checked={userFormData.is_active} onChange={e => setUserFormData({ ...userFormData, is_active: e.target.checked })} />
+                                                    Account Active
+                                                </label>
+                                            </div>
                                         </div>
-                                        <div className="form-group">
-                                            <label>Department</label>
-                                            <input type="text" value={userFormData.department || ''} onChange={e => setUserFormData({ ...userFormData, department: e.target.value })} className="dash-settings-input" />
+                                        <div className="modal-footer">
+                                            <button className="btn-secondary" onClick={() => setEditingUser(null)}>Cancel</button>
+                                            <button className="btn-primary" onClick={handleUpdateUser}><Save size={16} /> Save Changes</button>
                                         </div>
-                                        <div className="form-group checkbox-group">
-                                            <label className="flex items-center gap-2">
-                                                <input type="checkbox" checked={userFormData.is_active} onChange={e => setUserFormData({ ...userFormData, is_active: e.target.checked })} />
-                                                Account Active
-                                            </label>
-                                        </div>
-                                    </div>
-                                    <div className="modal-footer">
-                                        <button className="btn-secondary" onClick={() => setEditingUser(null)}>Cancel</button>
-                                        <button className="btn-primary" onClick={handleUpdateUser}><Save size={16} /> Save Changes</button>
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        {/* Reset Password Modal */}
-                        {resetPasswordUser && (
-                            <div className="modal-overlay" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>
-                                <div className="modal" onClick={e => e.stopPropagation()}>
-                                    <div className="modal-header">
-                                        <h3>Reset Password: {resetPasswordUser.username}</h3>
-                                        <button className="modal-close" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>×</button>
-                                    </div>
-                                    <div className="modal-body">
-                                        <div className="form-group">
-                                            <label>New Password</label>
-                                            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="dash-settings-input" placeholder="Enter new password (min 6 chars)" />
+                            {/* Reset Password Modal */}
+                            {resetPasswordUser && (
+                                <div className="modal-overlay" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>
+                                    <div className="modal" onClick={e => e.stopPropagation()}>
+                                        <div className="modal-header">
+                                            <h3>Reset Password: {resetPasswordUser.username}</h3>
+                                            <button className="modal-close" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>×</button>
+                                        </div>
+                                        <div className="modal-body">
+                                            <div className="form-group">
+                                                <label>New Password</label>
+                                                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="dash-settings-input" placeholder="Enter new password (min 6 chars)" />
+                                            </div>
+                                        </div>
+                                        <div className="modal-footer">
+                                            <button className="btn-secondary" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>Cancel</button>
+                                            <button className="btn-primary" onClick={handleResetPassword}><Lock size={16} /> Reset Password</button>
                                         </div>
                                     </div>
-                                    <div className="modal-footer">
-                                        <button className="btn-secondary" onClick={() => { setResetPasswordUser(null); setNewPassword(''); }}>Cancel</button>
-                                        <button className="btn-primary" onClick={handleResetPassword}><Lock size={16} /> Reset Password</button>
-                                    </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
-                )}
+                            )}
+                        </div>
+                    )
+                }
             </div >
         );
     };

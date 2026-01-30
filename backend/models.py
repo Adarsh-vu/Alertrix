@@ -171,3 +171,61 @@ class VideoService:
         if status:
             query = query.where('status', '==', status)
         return len(list(query.stream()))
+
+# ==========================================
+# PERSONNEL OPERATIONS (Firestore)
+# ==========================================
+class PersonnelService:
+    COLLECTION = 'personnel'
+    
+    @staticmethod
+    def create_personnel(name, phone, age, address='', aadhaar=''):
+        """Create a new personnel document"""
+        if not db: return None
+            
+        personnel_data = {
+            'name': name,
+            'phone': phone,
+            'age': age,
+            'address': address,
+            'aadhaar': aadhaar,
+            'created_at': datetime.utcnow()
+        }
+        
+        doc_ref = db.collection(PersonnelService.COLLECTION).document()
+        doc_ref.set(personnel_data)
+        personnel_data['id'] = doc_ref.id
+        return personnel_data
+    
+    @staticmethod
+    def get_all_personnel():
+        if not db: return []
+        docs = db.collection(PersonnelService.COLLECTION).order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        personnel = []
+        for doc in docs:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            personnel.append(data)
+        return personnel
+    
+    @staticmethod
+    def get_personnel_by_id(personnel_id):
+        if not db: return None
+        doc = db.collection(PersonnelService.COLLECTION).document(personnel_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            return data
+        return None
+    
+    @staticmethod
+    def update_personnel(personnel_id, updates):
+        if not db: return False
+        db.collection(PersonnelService.COLLECTION).document(personnel_id).update(updates)
+        return True
+    
+    @staticmethod
+    def delete_personnel(personnel_id):
+        if not db: return False
+        db.collection(PersonnelService.COLLECTION).document(personnel_id).delete()
+        return True

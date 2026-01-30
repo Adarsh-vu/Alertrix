@@ -18,7 +18,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 app.config['SECRET_KEY'] = 'alertrix-secret-key-change-in-production'
 
 # FIREBASE SETUP
-# NOTE: Add firebase-credentials.json to backend folder when ready
+
 from models import init_firebase
 firebase_ready = init_firebase()
 if firebase_ready:
@@ -126,7 +126,7 @@ def process_video(video_path):
                 "is_anomaly": is_anomaly
             })
 
-            frame_buffer = frame_buffer[10:]  # Optimized stride (was 8)
+            frame_buffer = frame_buffer[8:]
 
     cap.release()
     return anomalies

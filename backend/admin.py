@@ -6,7 +6,8 @@ Admin-only endpoints for personnel and system management (Firebase)
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash
 from auth import token_required, admin_required, format_user
-from models import UserService, VideoService
+from models import UserService, VideoService, PersonnelService
+import re
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
@@ -181,3 +182,120 @@ def get_admin_stats(current_user):
             'anomalies': VideoService.count_videos(status='ANOMALY DETECTED')
         }
     })
+
+# ==========================================
+# PERSONNEL MANAGEMENT
+# ==========================================
+
+def validate_aadhaar(aadhaar):
+    """Validate Aadhaar number - must be exactly 12 digits"""
+    if not aadhaar:
+        return True
+    aadhaar_clean = re.sub(r'\s+', '', aadhaar)
+    return bool(re.match(r'^\d{12}$', aadhaar_clean))
+
+@admin_bp.route('/personnel', methods=['GET'])
+@token_required
+@admin_required
+def get_all_personnel(current_user):
+    """Get all personnel on duty"""
+    personnel = PersonnelService.get_all_personnel()
+    return jsonify({
+        'personnel': personnel,
+        'total': len(personnel)
+    })
+
+@admin_bp.route('/personnel', methods=['POST'])
+@token_required
+@admin_required
+def create_personnel(current_user):
+    """Create a new personnel"""
+    data = request.get_json()
+    
+    name = data.get('name', '').strip()
+    phone = data.get('phone', '').strip()
+    age = data.get('age', '')
+    address = data.get('address', '').strip()
+    aadhaar = data.get('aadhaar', '').strip()
+    
+    if not name or not phone:
+        return jsonify({'error': 'Name and phone are required'}), 400
+    
+    if not age:
+        return jsonify({'error': 'Age is required'}), 400
+    
+    if not address:
+        return jsonify({'error': 'Address is required'}), 400
+    
+    if not aadhaar:
+        return jsonify({'error': 'Aadhaar number is required'}), 400
+    
+    # Validate Aadhaar - must be exactly 12 digits
+    if not validate_aadhaar(aadhaar):
+        return jsonify({'error': 'Aadhaar must be exactly 12 digits'}), 400
+    
+    # Clean Aadhaar (remove spaces)
+    aadhaar_clean = re.sub(r'\s+', '', aadhaar) if aadhaar else ''
+    
+    personnel = PersonnelService.create_personnel(
+        name=name,
+        phone=phone,
+        age=str(age),
+        address=address,
+        aadhaar=aadhaar_clean
+    )
+    
+    if not personnel:
+        return jsonify({'error': 'Failed to create personnel'}), 500
+    
+    return jsonify({
+        'message': 'Personnel created successfully',
+        'personnel': personnel
+    }), 201
+
+@admin_bp.route('/personnel/<personnel_id>', methods=['PUT'])
+@token_required
+@admin_required
+def update_personnel(current_user, personnel_id):
+    """Update personnel details"""
+    person = PersonnelService.get_personnel_by_id(personnel_id)
+    if not person:
+        return jsonify({'error': 'Personnel not found'}), 404
+    
+    data = request.get_json()
+    updates = {}
+    
+    if 'name' in data:
+        updates['name'] = data['name'].strip()
+    if 'phone' in data:
+        updates['phone'] = data['phone'].strip()
+    if 'age' in data:
+        updates['age'] = str(data['age'])
+    if 'address' in data:
+        updates['address'] = data['address'].strip()
+    if 'aadhaar' in data:
+        aadhaar = data['aadhaar'].strip()
+        if aadhaar and not validate_aadhaar(aadhaar):
+            return jsonify({'error': 'Aadhaar must be exactly 12 digits'}), 400
+        updates['aadhaar'] = re.sub(r'\s+', '', aadhaar) if aadhaar else ''
+    
+    if updates:
+        PersonnelService.update_personnel(personnel_id, updates)
+    
+    updated = PersonnelService.get_personnel_by_id(personnel_id)
+    return jsonify({
+        'message': 'Personnel updated successfully',
+        'personnel': updated
+    })
+
+@admin_bp.route('/personnel/<personnel_id>', methods=['DELETE'])
+@token_required
+@admin_required
+def delete_personnel(current_user, personnel_id):
+    """Delete a personnel"""
+    person = PersonnelService.get_personnel_by_id(personnel_id)
+    if not person:
+        return jsonify({'error': 'Personnel not found'}), 404
+    
+    PersonnelService.delete_personnel(personnel_id)
+    return jsonify({'message': 'Personnel deleted successfully'})

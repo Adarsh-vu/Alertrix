@@ -7,15 +7,13 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    /* Deep cosmic background matching dashboard vibe */
     background: radial-gradient(circle at top right, #1e293b, #0f172a 60%, #020617);
     padding: 20px;
     position: relative;
     overflow: hidden;
 }
 
-/* Optional: Add subtle animated stars or glow if desired, 
-   but keeping it clean for now with a slight grid effect */
+/* Background Decoration */
 .auth-page::before {
     content: '';
     position: absolute;
@@ -115,16 +113,11 @@
     color: #94a3b8;
 }
 
-/* ========================================
-   MAIN AUTH CONTAINER (Sliding Design)
-   ======================================== */
-
 .auth-container {
     position: relative;
     width: 900px;
     max-width: 100%;
     min-height: 600px;
-    /* Glassmorphism Container */
     background: rgba(15, 23, 42, 0.6);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -135,24 +128,20 @@
     z-index: 10;
 }
 
-/* Form Container (Inputs side) */
 .form-container {
     position: absolute;
     top: 0;
     height: 100%;
     transition: all 0.6s ease-in-out;
     background: transparent;
-    /* Ensure only one form is clickable/visible appropriately */
 }
 
-/* Sign In Form is on the Left initially */
 .sign-in-container {
     left: 0;
     width: 50%;
     z-index: 2;
 }
 
-/* Sign Up Form is on the Left initially (but hidden/inactive opacity) */
 .sign-up-container {
     left: 0;
     width: 50%;
@@ -160,11 +149,11 @@
     z-index: 1;
 }
 
-/* Active States for Sliding */
+
 .auth-container.right-panel-active .sign-in-container {
     transform: translateX(100%);
     opacity: 0;
-    /* Optional: fade out the departing form for smoother transition */
+    opacity: 0;
 }
 
 .auth-container.right-panel-active .sign-up-container {
@@ -648,10 +637,7 @@
     max-width: 80%;
 }
 
-/* 
-   FIX: Use Opacity and Explicit Positioning 
-   to prevent text bleeding 
-*/
+
 
 .overlay-left {
     left: 0;

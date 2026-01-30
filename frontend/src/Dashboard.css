@@ -1,6 +1,6 @@
-/* Dashboard and Settings - VIBRANT WHITE THEME (High Specificity) */
+/* Dashboard and Settings - Styles */
 
-/* Wrapper to isolate styles */
+/* Wrapper for white theme isolation */
 .dashboard-white-theme-wrapper {
     background: #ffffff !important;
     color: #1e293b !important;
@@ -26,8 +26,10 @@
     font-size: 2rem;
     font-weight: 800;
     margin-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
     background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
     text-shadow: none !important;
 }
@@ -52,44 +54,44 @@
     display: flex !important;
     align-items: center !important;
     gap: 0.6rem !important;
-    padding: 0.75rem 1.5rem !important;
-    border-radius: 12px !important;
+    padding: 0.85rem 1.75rem !important;
+    border-radius: 14px !important;
     font-weight: 600 !important;
     font-size: 0.95rem;
-    color: #64748b !important;
-    background: #f8fafc !important;
-    border: 1px solid #e2e8f0 !important;
+    color: #0d9488 !important;
+    background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%) !important;
+    border: 1px solid #99f6e4 !important;
     cursor: pointer !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: none !important;
+    box-shadow: 0 2px 8px rgba(20, 184, 166, 0.08) !important;
 }
 
 .dash-settings-tab svg {
     stroke-width: 2.5px;
-    color: #94a3b8 !important;
-}
-
-.dash-settings-tab:hover {
-    color: #0f172a !important;
-    background: #ffffff !important;
-    border-color: #cbd5e1 !important;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
-}
-
-.dash-settings-tab:hover svg {
     color: #14b8a6 !important;
 }
 
+.dash-settings-tab:hover {
+    color: #0f766e !important;
+    background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%) !important;
+    border-color: #5eead4 !important;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(20, 184, 166, 0.15) !important;
+}
+
+.dash-settings-tab:hover svg {
+    color: #0d9488 !important;
+}
+
 .dash-settings-tab.active {
-    background: #0f172a !important;
+    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%) !important;
     color: #ffffff !important;
-    border-color: #0f172a !important;
-    box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.3) !important;
+    border-color: #0d9488 !important;
+    box-shadow: 0 8px 24px -4px rgba(20, 184, 166, 0.4) !important;
 }
 
 .dash-settings-tab.active svg {
-    color: #2dd4bf !important;
+    color: #ffffff !important;
 }
 
 /* Sections */
@@ -281,21 +283,19 @@
     font-weight: 700;
 }
 
-/* User Info Text - CRITICAL VISIBILITY FIX */
+/* User Info Text */
 .user-cell-name {
     font-weight: 700 !important;
     color: #0f172a !important;
-    /* DARK TEXT */
     font-size: 1rem !important;
 }
 
 .user-cell-email {
     font-size: 0.85rem !important;
     color: #64748b !important;
-    /* GREY TEXT */
 }
 
-/* Status Indicators - FILLED STYLE */
+/* Status Indicators */
 .status-indicator {
     padding: 0.35rem 1rem;
     border-radius: 20px;
@@ -305,7 +305,6 @@
     letter-spacing: 0.05em;
     margin-left: 0.5rem;
     color: #ffffff !important;
-    /* White text for contrast */
     white-space: nowrap !important;
     flex-shrink: 0 !important;
     min-width: 80px;
@@ -316,17 +315,15 @@
 
 .status-indicator.active {
     background: #0d9488 !important;
-    /* Solid Teal */
     box-shadow: 0 2px 5px rgba(13, 148, 136, 0.3) !important;
 }
 
 .status-indicator.offline {
     background: #dc2626 !important;
-    /* Solid Red */
     box-shadow: 0 2px 5px rgba(220, 38, 38, 0.3) !important;
 }
 
-/* Table Status Tags - Filled */
+/* Table Status Tags */
 .status-tag {
     padding: 0.25rem 0.75rem;
     border-radius: 20px;
@@ -337,12 +334,10 @@
 
 .status-tag.active {
     background: #10b981 !important;
-    /* Solid Green/Teal */
 }
 
 .status-tag.inactive {
     background: #ef4444 !important;
-    /* Solid Red */
 }
 
 /* Helpers */
