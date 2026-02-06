@@ -6,8 +6,9 @@ Admin-only endpoints for personnel and system management (Firebase)
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash
 from auth import token_required, admin_required, format_user
-from models import UserService, VideoService, PersonnelService
+from models import UserService, VideoService, PersonnelService, CameraService
 import re
+import cv2
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
@@ -299,3 +300,228 @@ def delete_personnel(current_user, personnel_id):
     
     PersonnelService.delete_personnel(personnel_id)
     return jsonify({'message': 'Personnel deleted successfully'})
+
+# ==========================================
+# CAMERA MANAGEMENT
+# ==========================================
+
+def format_camera(camera):
+    if not camera:
+        return None
+    return {
+        'id': camera.get('id'),
+        'name': camera.get('name'),
+        'location': camera.get('location'),
+        'source_id': camera.get('source_id'),
+        'status': camera.get('status', 'offline'),
+        'visible': camera.get('visible', True),
+        'created_at': str(camera.get('created_at')) if camera.get('created_at') else None
+    }
+
+def format_camera_full(camera):
+    """Format camera data with source URL (admin only)"""
+    if not camera:
+        return None
+    formatted = format_camera(camera)
+    formatted['source'] = camera.get('source')
+    return formatted
+
+@admin_bp.route('/cameras', methods=['GET'])
+@token_required
+@admin_required
+def get_all_cameras(current_user):
+    """Get all cameras (admin only)"""
+    cameras = CameraService.get_all_cameras()
+    return jsonify({
+        'cameras': [format_camera_full(c) for c in cameras],
+        'total': len(cameras)
+    })
+
+@admin_bp.route('/cameras', methods=['POST'])
+@token_required
+@admin_required
+def create_camera(current_user):
+    """Create a single camera"""
+    data = request.get_json()
+    
+    name = data.get('name', '').strip()
+    location = data.get('location', '').strip()
+    source = data.get('source', '').strip()
+    
+    if not name or not source:
+        return jsonify({'error': 'Name and source (RTSP URL) are required'}), 400
+    
+    # Generate source_id from name
+    source_id = f"cam_{name.lower().replace(' ', '_')}_{len(CameraService.get_all_cameras()) + 1}"
+    
+    camera = CameraService.create_camera(
+        name=name,
+        location=location,
+        source=source,
+        source_id=source_id,
+        created_by=current_user.get('id')
+    )
+    
+    if not camera:
+        return jsonify({'error': 'Failed to create camera'}), 500
+    
+    return jsonify({
+        'message': 'Camera created successfully',
+        'camera': format_camera_full(camera)
+    }), 201
+
+@admin_bp.route('/cameras/bulk', methods=['POST'])
+@token_required
+@admin_required
+def bulk_create_cameras(current_user):
+    """
+    Bulk create cameras using RTSP template.
+    
+    Expected payload:
+    {
+        "name_prefix": "CAM-",
+        "location": "Building A",
+        "rtsp_template": "rtsp://user:pass@192.168.1.{X}:554/stream1",
+        "start_value": 101,
+        "end_value": 108
+    }
+    """
+    data = request.get_json()
+    
+    name_prefix = data.get('name_prefix', '').strip()
+    location = data.get('location', '').strip()
+    rtsp_template = data.get('rtsp_template', '').strip()
+    start_value = data.get('start_value')
+    end_value = data.get('end_value')
+    
+    # Validation
+    if not name_prefix:
+        return jsonify({'error': 'Camera name prefix is required'}), 400
+    
+    if not rtsp_template:
+        return jsonify({'error': 'RTSP template is required'}), 400
+    
+    if start_value is None or end_value is None:
+        return jsonify({'error': 'Start and end values are required'}), 400
+    
+    try:
+        start_value = int(start_value)
+        end_value = int(end_value)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Start and end values must be integers'}), 400
+    
+    # Call bulk create
+    results = CameraService.bulk_create_cameras(
+        name_prefix=name_prefix,
+        location=location,
+        rtsp_template=rtsp_template,
+        start_value=start_value,
+        end_value=end_value,
+        created_by=current_user.get('id')
+    )
+    
+    # Check for validation errors
+    if len(results) == 1 and not results[0].get('success') and results[0].get('error'):
+        return jsonify({'error': results[0]['error']}), 400
+    
+    # Format results
+    formatted_results = []
+    success_count = 0
+    for r in results:
+        if r.get('success'):
+            success_count += 1
+            formatted_results.append({
+                'success': True,
+                'camera': format_camera_full(r.get('camera'))
+            })
+        else:
+            formatted_results.append({
+                'success': False,
+                'error': r.get('error')
+            })
+    
+    return jsonify({
+        'message': f'Created {success_count} of {len(results)} cameras',
+        'results': formatted_results,
+        'success_count': success_count,
+        'total': len(results)
+    }), 201 if success_count > 0 else 400
+
+@admin_bp.route('/cameras/<camera_id>', methods=['PUT'])
+@token_required
+@admin_required
+def update_camera(current_user, camera_id):
+    """Update camera details"""
+    camera = CameraService.get_camera_by_id(camera_id)
+    if not camera:
+        return jsonify({'error': 'Camera not found'}), 404
+    
+    data = request.get_json()
+    updates = {}
+    
+    if 'name' in data:
+        updates['name'] = data['name'].strip()
+    if 'location' in data:
+        updates['location'] = data['location'].strip()
+    if 'source' in data:
+        updates['source'] = data['source'].strip()
+    if 'visible' in data:
+        updates['visible'] = bool(data['visible'])
+    if 'status' in data:
+        updates['status'] = data['status']
+    
+    if updates:
+        CameraService.update_camera(camera_id, updates)
+    
+    updated = CameraService.get_camera_by_id(camera_id)
+    return jsonify({
+        'message': 'Camera updated successfully',
+        'camera': format_camera_full(updated)
+    })
+
+@admin_bp.route('/cameras/<camera_id>', methods=['DELETE'])
+@token_required
+@admin_required
+def delete_camera(current_user, camera_id):
+    """Delete a camera"""
+    camera = CameraService.get_camera_by_id(camera_id)
+    if not camera:
+        return jsonify({'error': 'Camera not found'}), 404
+    
+    CameraService.delete_camera(camera_id)
+    return jsonify({'message': 'Camera deleted successfully'})
+
+@admin_bp.route('/cameras/test-rtsp', methods=['POST'])
+@token_required
+@admin_required
+def test_rtsp_connection(current_user):
+    data = request.get_json()
+    rtsp_url = data.get('rtsp_url', '').strip()
+    
+    if not rtsp_url:
+        return jsonify({'error': 'RTSP URL is required'}), 400
+    
+    try:
+        cap = cv2.VideoCapture(rtsp_url)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        # Try to read one frame with timeout
+        ret, frame = cap.read()
+        cap.release()
+        
+        if ret and frame is not None:
+            return jsonify({
+                'success': True,
+                'message': 'Connection successful - stream is accessible'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Could not read from stream - check URL and credentials'
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Connection failed: {str(e)}'
+        })
+

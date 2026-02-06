@@ -13,7 +13,6 @@ def init_firebase():
     """Initialize Firebase Admin SDK and connect to Firestore"""
     global db
     try:
-        # Check if already initialized to prevent multiple app errors
         if not firebase_admin._apps:
             if not os.path.exists(CREDENTIALS_FILE):
                 raise FileNotFoundError(f"Missing {CREDENTIALS_FILE}. See setup instructions.")
@@ -229,3 +228,177 @@ class PersonnelService:
         if not db: return False
         db.collection(PersonnelService.COLLECTION).document(personnel_id).delete()
         return True
+
+# ==========================================
+# CAMERA MANAGEMENT (Firestore)
+# ==========================================
+class CameraService:
+    COLLECTION = 'cameras'
+    MAX_BULK_SIZE = 8 
+    
+    @staticmethod
+    def create_camera(name, location, source, source_id, created_by=None):
+        """Create a new camera entry"""
+        if not db: return None
+        
+        camera_data = {
+            'name': name,
+            'location': location,
+            'source': source,  # RTSP/HTTP URL
+            'source_id': source_id,
+            'status': 'offline',
+            'visible': True,
+            'created_by': created_by,
+            'created_at': datetime.utcnow()
+        }
+        
+        doc_ref = db.collection(CameraService.COLLECTION).document()
+        doc_ref.set(camera_data)
+        camera_data['id'] = doc_ref.id
+        return camera_data
+    
+    @staticmethod
+    def bulk_create_cameras(name_prefix, location, rtsp_template, start_value, end_value, created_by=None):
+        """
+        Create multiple cameras using an RTSP template.
+        Template uses {X} as placeholder for the varying value.
+        
+        Returns: list of {camera, success, error} dicts
+        """
+        if not db: return []
+        
+        results = []
+        count = end_value - start_value + 1
+        
+        # Enforce bulk size limit
+        if count > CameraService.MAX_BULK_SIZE:
+            return [{'success': False, 'error': f'Bulk size exceeds limit of {CameraService.MAX_BULK_SIZE}'}]
+        
+        if count <= 0:
+            return [{'success': False, 'error': 'End value must be greater than or equal to start value'}]
+        
+        if '{X}' not in rtsp_template:
+            return [{'success': False, 'error': 'RTSP template must contain {X} placeholder'}]
+        
+        for i in range(start_value, end_value + 1):
+            try:
+                # Generate source URL by replacing {X} with current value
+                source_url = rtsp_template.replace('{X}', str(i))
+                camera_name = f"{name_prefix}{i}"
+                source_id = f"cam_{name_prefix.lower().replace(' ', '_')}{i}"
+                
+                camera = CameraService.create_camera(
+                    name=camera_name,
+                    location=location,
+                    source=source_url,
+                    source_id=source_id,
+                    created_by=created_by
+                )
+                
+                if camera:
+                    results.append({'camera': camera, 'success': True, 'error': None})
+                else:
+                    results.append({'camera': None, 'success': False, 'error': 'Failed to create camera'})
+            except Exception as e:
+                results.append({'camera': None, 'success': False, 'error': str(e)})
+        
+        return results
+    
+    @staticmethod
+    def get_all_cameras():
+        if not db: return []
+        docs = db.collection(CameraService.COLLECTION).order_by('created_at', direction=firestore.Query.DESCENDING).stream()
+        cameras = []
+        for doc in docs:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            cameras.append(data)
+        return cameras
+    
+    @staticmethod
+    def get_camera_by_id(camera_id):
+        if not db: return None
+        doc = db.collection(CameraService.COLLECTION).document(camera_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            return data
+        return None
+    
+    @staticmethod
+    def update_camera(camera_id, updates):
+        if not db: return False
+        db.collection(CameraService.COLLECTION).document(camera_id).update(updates)
+        return True
+    
+    @staticmethod
+    def delete_camera(camera_id):
+        if not db: return False
+        db.collection(CameraService.COLLECTION).document(camera_id).delete()
+        return True
+    
+    @staticmethod
+    def seed_demo_cameras():
+        """
+        Seed 4 demo cameras if no cameras exist in the database.
+        Uses placeholder URLs since real CCTV feeds aren't available.
+        """
+        if not db: return []
+        
+        # Check if cameras already exist
+        existing = list(db.collection(CameraService.COLLECTION).limit(1).stream())
+        if existing:
+            print("[CameraService] Demo cameras already exist, skipping seed.")
+            return []
+        
+        # Demo camera configurations - 1 added via single, 3 via group for demo
+        demo_cameras = [
+            {
+                'name': 'Camera 1 - Entrance',
+                'location': 'Main Entrance',
+                'source': 'demo://entrance',
+                'source_id': 'demo_cam_entrance',
+                'status': 'active',
+                'visible': True,
+                'addedVia': 'single'
+            {
+                'name': 'Camera 2 - Parking',
+                'location': 'Parking Lot A',
+                'source': 'demo://parking',
+                'source_id': 'demo_cam_parking',
+                'status': 'active',
+                'visible': True,
+                'addedVia': 'group'
+            },
+            {
+                'name': 'Camera 3 - Hallway',
+                'location': 'Main Hallway',
+                'source': 'demo://hallway',
+                'source_id': 'demo_cam_hallway',
+                'status': 'offline',
+                'visible': True,
+                'addedVia': 'group'
+            },
+            {
+                'name': 'Camera 4 - Exit',
+                'location': 'Emergency Exit',
+                'source': 'demo://exit',
+                'source_id': 'demo_cam_exit',
+                'status': 'active',
+                'visible': True,
+                'addedVia': 'group'
+            }
+        ]
+        
+        created_cameras = []
+        for cam_data in demo_cameras:
+            cam_data['created_by'] = 'system'
+            cam_data['created_at'] = datetime.utcnow()
+            
+            doc_ref = db.collection(CameraService.COLLECTION).document()
+            doc_ref.set(cam_data)
+            cam_data['id'] = doc_ref.id
+            created_cameras.append(cam_data)
+        
+        print(f"[CameraService] Seeded {len(created_cameras)} demo cameras to Firebase.")
+        return created_cameras

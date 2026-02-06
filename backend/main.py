@@ -30,10 +30,12 @@ app.config['SECRET_KEY'] = 'alertrix-secret-key-change-in-production'
 
 # FIREBASE SETUP
 
-from models import init_firebase
+from models import init_firebase, CameraService
 firebase_ready = init_firebase()
 if firebase_ready:
     print("Firebase connected successfully!")
+    # Seed demo cameras if none exist
+    CameraService.seed_demo_cameras()
 else:
     print("WARNING: Firebase not initialized. Auth features will be limited.")
 
@@ -263,7 +265,6 @@ def get_live_status():
 
 @app.route('/api/cameras')
 def get_cameras():
-    """Get list of available cameras (demo data for prototype)."""
     return jsonify({
         "cameras": DEMO_CAMERAS,
         "webcam_available": True

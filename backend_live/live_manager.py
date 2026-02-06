@@ -1,13 +1,3 @@
-"""
-Alertrix - Live Stream Manager
-Real-time video streaming with Smart Sampling for AI inference.
-
-Architecture:
-- Visual Stream: 30 FPS MJPEG for smooth viewing
-- AI Thread: Samples 1 frame/0.1s, runs inference every 16 frames (~1.6s)
-- Global threat_score updated after each inference
-"""
-
 import cv2
 import time
 import math
@@ -23,32 +13,15 @@ import requests
 
 
 class StreamManager:
-    """
-    Manages video feeds with Smart Sampling for efficient GPU usage.
-    
-    Features:
-    - Smooth 30 FPS visual streaming via MJPEG
-    - Background AI inference every 1.6 seconds
-    - Thread-safe threat score updates
-    - Automatic resource cleanup
-    """
     
     def __init__(self, model_path, device, use_fp16, threshold):
-        """
-        Initialize the StreamManager.
-        
-        Args:
-            model_path: Path to the .pth model file
-            device: 'cuda' or 'cpu'
-            use_fp16: Whether to use FP16 precision
-            threshold: Anomaly detection threshold
-        """
+
         self.model_path = model_path
         self.device = device
         self.use_fp16 = use_fp16
         self.threshold = threshold
         
-        # Model state (Singleton pattern for VRAM efficiency)
+        # Model state
         self.model = None
         self.processor = None
         
@@ -62,14 +35,6 @@ class StreamManager:
         print("StreamManager initialized")
     
     def start_feed(self, source, source_id, name="Camera"):
-        """
-        Start a new camera feed.
-        
-        Args:
-            source: 0 for webcam, or RTSP/HTTP URL string
-            source_id: Unique identifier for this feed
-            name: Display name for the camera
-        """
         with self.lock:
             if source_id in self.feeds:
                 print(f"Feed {source_id} already running")
@@ -140,15 +105,6 @@ class StreamManager:
             print("All feeds stopped")
     
     def get_frame_generator(self, source_id):
-        """
-        Get the MJPEG frame generator for a specific feed.
-        
-        Args:
-            source_id: The feed identifier
-            
-        Yields:
-            bytes: JPEG-encoded frames as multipart stream
-        """
         if source_id not in self.feeds:
             return None
         return self.feeds[source_id].generate_mjpeg()
@@ -182,12 +138,6 @@ class StreamManager:
 
 
 class CameraFeed:
-    """
-    Individual camera feed handler with Smart Sampling.
-    
-    - Visual thread: Captures frames at ~30 FPS for smooth display
-    - AI thread: Samples frames every 0.1s, runs inference every 16 frames
-    """
     
     def __init__(self, source, source_id, name, model, processor, device, use_fp16, threshold, score_callback):
         self.source = source
@@ -260,7 +210,6 @@ class CameraFeed:
         print(f"Camera feed stopped: {self.name}")
     
     def _capture_loop(self):
-        """Main capture loop - runs at ~30 FPS."""
         target_fps = 30
         frame_interval = 1.0 / target_fps
         
@@ -336,7 +285,7 @@ class CameraFeed:
         
         if self.prev_frame_gray is None:
             self.prev_frame_gray = gray
-            return True # Assume motion on first frame
+            return True
             
         frame_delta = cv2.absdiff(self.prev_frame_gray, gray)
         thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
@@ -410,12 +359,6 @@ class CameraFeed:
         return torch.gather(mask, dim=1, index=ids_shuffle).bool().to(self.device)
     
     def generate_mjpeg(self):
-        """
-        Generate MJPEG stream with threat score overlay.
-        
-        Yields:
-            bytes: JPEG frames as multipart stream
-        """
         while self.running:
             try:
                 with self.frame_lock:

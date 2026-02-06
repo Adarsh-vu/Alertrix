@@ -67,15 +67,30 @@ const Dashboard = ({ user, onLogout }) => {
 
     const isAdmin = user?.role === 'admin';
 
-    // Camera feed data
+    // Camera feed data - default demo cameras shown on dashboard
     const [cameras, setCameras] = useState([
-        { id: 1, name: 'Camera 1', location: 'Entrance', status: 'active', score: 12, visible: true },
-        { id: 2, name: 'Camera 2', location: 'Parking', status: 'active', score: 8, visible: true },
-        { id: 3, name: 'Camera 3', location: 'Hallway', status: 'offline', score: 0, visible: true },
-        { id: 4, name: 'Camera 4', location: 'Exit', status: 'active', score: 15, visible: true },
+        { id: 'demo_1', name: 'Camera 1 - Entrance', location: 'Main Entrance', status: 'active', visible: true, addedVia: 'single' },
+        { id: 'demo_2', name: 'Camera 2 - Parking', location: 'Parking Lot A', status: 'active', visible: true, addedVia: 'group' },
+        { id: 'demo_3', name: 'Camera 3 - Hallway', location: 'Main Hallway', status: 'offline', visible: true, addedVia: 'group' },
+        { id: 'demo_4', name: 'Camera 4 - Exit', location: 'Emergency Exit', status: 'active', visible: true, addedVia: 'group' },
     ]);
+    const [camerasLoading, setCamerasLoading] = useState(false);
+    const [camerasFetched, setCamerasFetched] = useState(false);
     const [showCameraManager, setShowCameraManager] = useState(false);
     const [editingCameraId, setEditingCameraId] = useState(null);
+
+    // Group Add Camera state
+    const [cameraAddMode, setCameraAddMode] = useState('single'); // 'single' or 'group'
+    const [newCamera, setNewCamera] = useState({ name: '', location: '', source: '' });
+    const [groupCameraForm, setGroupCameraForm] = useState({
+        namePrefix: 'CAM-',
+        location: '',
+        rtspTemplate: '',
+        startValue: 1,
+        endValue: 4
+    });
+    const [groupResults, setGroupResults] = useState([]);
+    const [groupLoading, setGroupLoading] = useState(false);
 
     // Personnel on duty (loaded from database)
     const [personnel, setPersonnel] = useState([]);
@@ -684,27 +699,25 @@ const Dashboard = ({ user, onLogout }) => {
                 if (data.webcam) {
                     const scoreData = data.webcam;
                     setLiveScore(scoreData);
-                    // Use dampened score for display (max ~64% for normal activity)
+                    // Use dampened score for display
                     const displayScore = Math.min(Math.round(scoreData.score * 65), 99);
                     setCurrentScore(displayScore);
-                    // Add to history for chart (use dampened values)
                     setLiveScoreHistory(prev => {
                         const newPoint = {
                             time: new Date().toLocaleTimeString(),
                             score: scoreData.score * 0.65 // Dampened for chart
                         };
-                        const updated = [...prev, newPoint].slice(-30); // Keep last 30 points
+                        const updated = [...prev, newPoint].slice(-30);
                         return updated;
                     });
-                    // Only trigger alerts for genuinely high raw scores (real anomalies)
-                    if (scoreData.score > 0.75) {
+                    if (scoreData.score > 0.70) {
                         triggerAlert(scoreData.score, scoreData.status);
                     }
                 }
             } catch (err) {
                 console.error('Score polling error:', err);
             }
-        }, 1500); // Poll every 1.5 seconds (matches AI inference rate)
+        }, 1500);
     };
 
     const stopScorePolling = () => {
@@ -718,7 +731,7 @@ const Dashboard = ({ user, onLogout }) => {
     // VOICE ALERT SYSTEM (Web Speech API - FREE)
     // ==========================================
     const lastAlertTimeRef = useRef(0);
-    const alertCooldown = 30000; // 30 seconds between voice alerts
+    const alertCooldown = 30000;
 
     const speakAlert = (text) => {
         if (!alertSettings.soundAlerts || alertsMuted) return;
@@ -727,7 +740,7 @@ const Dashboard = ({ user, onLogout }) => {
         const now = Date.now();
         if (now - lastAlertTimeRef.current < alertCooldown) return;
 
-        // Use Web Speech API (FREE - built into browsers)
+        // Use Web Speech API
         if ('speechSynthesis' in window) {
             // Cancel any ongoing speech
             window.speechSynthesis.cancel();
@@ -751,7 +764,7 @@ const Dashboard = ({ user, onLogout }) => {
     };
 
     // ==========================================
-    // BROWSER NOTIFICATION (Push Notifications - FREE)
+    // BROWSER NOTIFICATION
     // ==========================================
     const requestNotificationPermission = async () => {
         if ('Notification' in window && Notification.permission === 'default') {
@@ -772,8 +785,8 @@ const Dashboard = ({ user, onLogout }) => {
             body: body,
             icon: '/favicon.ico',
             badge: '/favicon.ico',
-            tag: 'alertrix-alert', // Replace previous notifications
-            requireInteraction: score > 0.70 // Critical alerts stay until dismissed
+            tag: 'alertrix-alert',
+            requireInteraction: score > 0.70
         });
 
         notification.onclick = () => {
@@ -844,11 +857,8 @@ const Dashboard = ({ user, onLogout }) => {
     };
 
     const statusStyle = getStatusStyle(liveScore.status, liveScore.score);
-
-    // Cap the display score for normal activity (max 44% display for teacher demo)
     const getDisplayScore = (rawScore) => {
-        // Apply a dampening factor for normal activities
-        const dampened = rawScore * 0.65; // Reduce perceived score for demo purposes
+        const dampened = rawScore * 0.65;
         return Math.min(Math.round(dampened * 100), 99);
     };
 
@@ -1038,8 +1048,6 @@ const Dashboard = ({ user, onLogout }) => {
                                 </div>
                             </div>
                         </div>
-
-                        {/* Quick Stats - Fills empty space */}
                         <div className="quick-stats-card">
                             <div className="quick-stats-header">
                                 <Shield size={16} />
@@ -1059,7 +1067,7 @@ const Dashboard = ({ user, onLogout }) => {
                     </div>
                 </div>
 
-                {/* Real-time Chart Section - Full Width, Aligned with both panels */}
+                {/* Real-time Chart Section */}
                 <div className="live-chart-section-fullwidth">
                     <div className="chart-header">
                         <h3><Activity size={18} /> Real-time Anomaly Trend</h3>
@@ -1241,7 +1249,148 @@ const Dashboard = ({ user, onLogout }) => {
         if (activeTab === 'settings' && isAdmin && !personnelFetched && !personnelLoading) {
             fetchPersonnel();
         }
+        if (activeTab === 'settings' && isAdmin && !camerasFetched && !camerasLoading) {
+            fetchCameras();
+        }
     }, [activeTab, isAdmin]);
+
+    // Camera API functions
+    const fetchCameras = async () => {
+        setCamerasLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/admin/cameras', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setCameras(data.cameras || []);
+            }
+            setCamerasFetched(true);
+        } catch (err) {
+            console.error('Failed to fetch cameras:', err);
+        } finally {
+            setCamerasLoading(false);
+        }
+    };
+
+    const handleAddSingleCamera = async () => {
+        if (!newCamera.name || !newCamera.source) {
+            alert('Camera name and RTSP source are required');
+            return;
+        }
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/admin/cameras', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(newCamera)
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setCameras([data.camera, ...cameras]);
+                setNewCamera({ name: '', location: '', source: '' });
+            } else {
+                alert(data.error || 'Failed to add camera');
+            }
+        } catch (err) {
+            console.error('Add camera error:', err);
+            alert('Failed to add camera');
+        }
+    };
+
+    const handleGroupAddCameras = async () => {
+        const { namePrefix, location, rtspTemplate, startValue, endValue } = groupCameraForm;
+
+        if (!namePrefix || !rtspTemplate) {
+            alert('Name prefix and RTSP template are required');
+            return;
+        }
+        if (!rtspTemplate.includes('{X}')) {
+            alert('RTSP template must contain {X} placeholder');
+            return;
+        }
+        const count = endValue - startValue + 1;
+        if (count > 8 || count < 1) {
+            alert('Range must be between 1 and 8 cameras');
+            return;
+        }
+
+        setGroupLoading(true);
+        setGroupResults([]);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/admin/cameras/bulk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    name_prefix: namePrefix,
+                    location: location,
+                    rtsp_template: rtspTemplate,
+                    start_value: parseInt(startValue),
+                    end_value: parseInt(endValue)
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setGroupResults(data.results || []);
+                const newCameras = (data.results || [])
+                    .filter(r => r.success)
+                    .map(r => r.camera);
+                setCameras([...newCameras, ...cameras]);
+            } else {
+                alert(data.error || 'Group add failed');
+            }
+        } catch (err) {
+            console.error('Group add error:', err);
+            alert('Failed to group add cameras');
+        } finally {
+            setGroupLoading(false);
+        }
+    };
+
+    const handleDeleteCamera = async (cameraId) => {
+        if (!confirm('Delete this camera?')) return;
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`http://localhost:5000/api/admin/cameras/${cameraId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                setCameras(cameras.filter(c => c.id !== cameraId));
+            } else {
+                const data = await response.json();
+                alert(data.error || 'Failed to delete');
+            }
+        } catch (err) {
+            console.error('Delete camera error:', err);
+        }
+    };
+
+    const handleTestRtsp = async (rtspUrl) => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('http://localhost:5000/api/admin/cameras/test-rtsp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ rtsp_url: rtspUrl })
+            });
+            const data = await response.json();
+            alert(data.success ? '✅ ' + data.message : '❌ ' + data.message);
+        } catch (err) {
+            alert('❌ Connection test failed');
+        }
+    };
 
     // Personnel API functions
     const fetchPersonnel = async () => {
@@ -1380,41 +1529,257 @@ const Dashboard = ({ user, onLogout }) => {
                 {settingsTab === 'cameras' && (
                     <div className="dash-settings-section">
                         <h2>Camera Management</h2>
-                        <div className="dash-settings-list">
-                            {cameras.map(camera => (
-                                <div key={camera.id} className="dash-settings-item">
-                                    <button
-                                        className={`visibility-btn ${camera.visible ? 'visible' : ''}`}
-                                        onClick={() => setCameras(cameras.map(c =>
-                                            c.id === camera.id ? { ...c, visible: !c.visible } : c
-                                        ))}
-                                    >
-                                        {camera.visible ? <Eye size={18} /> : <EyeOff size={18} />}
-                                    </button>
-                                    <div className="settings-item-content">
-                                        <div className="flex items-center gap-3">
-                                            {editingCameraId === camera.id ? (
-                                                <input type="text" value={camera.name} onChange={(e) => setCameras(cameras.map(c => c.id === camera.id ? { ...c, name: e.target.value } : c))} className="dash-settings-input" placeholder="Camera name" />
-                                            ) : (
-                                                <span className="settings-name">{camera.name}</span>
-                                            )}
-                                            <span className={`status-indicator ${camera.status}`}>{camera.status}</span>
-                                        </div>
-                                        {editingCameraId === camera.id ? (
-                                            <input type="text" value={camera.location} onChange={(e) => setCameras(cameras.map(c => c.id === camera.id ? { ...c, location: e.target.value } : c))} className="dash-settings-input" placeholder="Location" />
-                                        ) : (
-                                            <span className="settings-detail">{camera.location}</span>
-                                        )}
-                                    </div>
-                                    <div className="settings-actions">
-                                        <button className="edit-btn" onClick={() => setEditingCameraId(editingCameraId === camera.id ? null : camera.id)}>
-                                            {editingCameraId === camera.id ? <Check size={16} /> : <Edit2 size={16} />}
+
+                        {/* Mode Toggle */}
+                        <div className="camera-mode-toggle" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                            <button
+                                onClick={() => setCameraAddMode('single')}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    borderRadius: '8px',
+                                    border: cameraAddMode === 'single' ? '2px solid #14b8a6' : '1px solid #e2e8f0',
+                                    background: cameraAddMode === 'single' ? 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)' : '#fff',
+                                    color: cameraAddMode === 'single' ? '#fff' : '#64748b',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <Camera size={14} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />
+                                Single Camera
+                            </button>
+                            <button
+                                onClick={() => setCameraAddMode('group')}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    borderRadius: '8px',
+                                    border: cameraAddMode === 'group' ? '2px solid #14b8a6' : '1px solid #e2e8f0',
+                                    background: cameraAddMode === 'group' ? 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)' : '#fff',
+                                    color: cameraAddMode === 'group' ? '#fff' : '#64748b',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <Plus size={14} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />
+                                Group Add (RTSP Template)
+                            </button>
+                        </div>
+
+                        {/* Camera List */}
+                        {camerasLoading ? (
+                            <div className="loading-state">Loading cameras...</div>
+                        ) : (
+                            <div className="dash-settings-list">
+                                {cameras.length === 0 && (
+                                    <div className="loading-state" style={{ color: '#64748b' }}>No cameras added yet. Add your first camera below.</div>
+                                )}
+                                {cameras.map(camera => (
+                                    <div key={camera.id} className="dash-settings-item">
+                                        <button
+                                            className={`visibility-btn ${camera.visible ? 'visible' : ''}`}
+                                            onClick={() => setCameras(cameras.map(c =>
+                                                c.id === camera.id ? { ...c, visible: !c.visible } : c
+                                            ))}
+                                        >
+                                            {camera.visible ? <Eye size={18} /> : <EyeOff size={18} />}
                                         </button>
-                                        <button className="delete-btn" onClick={() => setCameras(cameras.filter(c => c.id !== camera.id))}><Trash2 size={16} /></button>
+                                        <div className="settings-item-content">
+                                            <div className="flex items-center gap-3">
+                                                <span className="settings-name">{camera.name}</span>
+                                                <span className={`status-indicator ${camera.status}`} style={{
+                                                    fontSize: '0.55rem',
+                                                    padding: '0.15rem 0.5rem',
+                                                    minWidth: 'fit-content',
+                                                    width: 'auto',
+                                                    height: 'auto',
+                                                    lineHeight: 'normal',
+                                                    marginLeft: '0.75rem',
+                                                    borderRadius: '4px',
+                                                    whiteSpace: 'nowrap'
+                                                }}>
+                                                    {camera.status}
+                                                </span>
+                                            </div>
+                                            <span className="settings-detail">{camera.location || 'No location'}</span>
+                                        </div>
+                                        <div className="settings-actions">
+                                            <button className="delete-btn" onClick={() => handleDeleteCamera(camera.id)}><Trash2 size={16} /></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Single Camera Add Form */}
+                        {cameraAddMode === 'single' && (
+                            <div className="add-camera-form" style={{ marginTop: '1.5rem', padding: '1.5rem', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <h4 style={{ color: '#0d9488', marginBottom: '1rem', fontSize: '1rem', fontWeight: '700' }}>Add Single Camera</h4>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
+                                    <input
+                                        type="text"
+                                        value={newCamera.name}
+                                        onChange={(e) => setNewCamera({ ...newCamera, name: e.target.value })}
+                                        className="dash-settings-input"
+                                        placeholder="Camera Name *"
+                                        style={{ flex: '1 1 150px' }}
+                                    />
+                                    <input
+                                        type="text"
+                                        value={newCamera.location}
+                                        onChange={(e) => setNewCamera({ ...newCamera, location: e.target.value })}
+                                        className="dash-settings-input"
+                                        placeholder="Location"
+                                        style={{ flex: '1 1 150px' }}
+                                    />
+                                    <input
+                                        type="text"
+                                        value={newCamera.source}
+                                        onChange={(e) => setNewCamera({ ...newCamera, source: e.target.value })}
+                                        className="dash-settings-input"
+                                        placeholder="RTSP URL * (e.g., rtsp://user:pass@192.168.1.100:554/stream)"
+                                        style={{ flex: '2 1 300px' }}
+                                    />
+                                    <button
+                                        onClick={() => newCamera.source && handleTestRtsp(newCamera.source)}
+                                        style={{ padding: '0.75rem 1rem', borderRadius: '8px', background: '#64748b', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
+                                        title="Test Connection"
+                                    >
+                                        Test
+                                    </button>
+                                    <button
+                                        onClick={handleAddSingleCamera}
+                                        style={{ padding: '0.75rem 1rem', borderRadius: '8px', background: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                                    >
+                                        <Plus size={16} /> Add Camera
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Group Add Form */}
+                        {cameraAddMode === 'group' && (
+                            <div className="group-add-form" style={{ marginTop: '1.5rem', padding: '1.5rem', background: '#f0fdfa', borderRadius: '12px', border: '1px solid #14b8a6' }}>
+                                <h4 style={{ color: '#0d9488', marginBottom: '0.5rem', fontSize: '1rem', fontWeight: '700' }}>
+                                    Group Add Cameras (RTSP Template)
+                                </h4>
+                                <p style={{ color: '#64748b', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                                    Use <code style={{ background: '#e2e8f0', padding: '0.125rem 0.25rem', borderRadius: '4px' }}>{'{X}'}</code> as placeholder for the varying value (e.g., IP octet or channel number). Max 8 cameras.
+                                </p>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', marginBottom: '0.25rem' }}>Name Prefix *</label>
+                                        <input
+                                            type="text"
+                                            value={groupCameraForm.namePrefix}
+                                            onChange={(e) => setGroupCameraForm({ ...groupCameraForm, namePrefix: e.target.value })}
+                                            className="dash-settings-input"
+                                            placeholder="CAM-"
+                                            style={{ width: '100%' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', marginBottom: '0.25rem' }}>Location</label>
+                                        <input
+                                            type="text"
+                                            value={groupCameraForm.location}
+                                            onChange={(e) => setGroupCameraForm({ ...groupCameraForm, location: e.target.value })}
+                                            className="dash-settings-input"
+                                            placeholder="Building A"
+                                            style={{ width: '100%' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', marginBottom: '0.25rem' }}>Start Value</label>
+                                        <input
+                                            type="number"
+                                            value={groupCameraForm.startValue}
+                                            onChange={(e) => setGroupCameraForm({ ...groupCameraForm, startValue: parseInt(e.target.value) || 1 })}
+                                            className="dash-settings-input"
+                                            min="0"
+                                            style={{ width: '100%' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', marginBottom: '0.25rem' }}>End Value</label>
+                                        <input
+                                            type="number"
+                                            value={groupCameraForm.endValue}
+                                            onChange={(e) => setGroupCameraForm({ ...groupCameraForm, endValue: parseInt(e.target.value) || 1 })}
+                                            className="dash-settings-input"
+                                            min="0"
+                                            max={groupCameraForm.startValue + 7}
+                                            style={{ width: '100%' }}
+                                        />
                                     </div>
                                 </div>
-                            ))}
-                        </div>
+
+                                <div style={{ marginBottom: '1rem' }}>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#64748b', marginBottom: '0.25rem' }}>RTSP Template *</label>
+                                    <input
+                                        type="text"
+                                        value={groupCameraForm.rtspTemplate}
+                                        onChange={(e) => setGroupCameraForm({ ...groupCameraForm, rtspTemplate: e.target.value })}
+                                        className="dash-settings-input"
+                                        placeholder="rtsp://user:pass@192.168.1.{X}:554/stream1"
+                                        style={{ width: '100%' }}
+                                    />
+                                </div>
+
+                                {/* Preview */}
+                                {groupCameraForm.rtspTemplate.includes('{X}') && (
+                                    <div style={{ marginBottom: '1rem', padding: '0.75rem', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#64748b' }}>Preview ({groupCameraForm.endValue - groupCameraForm.startValue + 1} cameras):</span>
+                                        <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                            {Array.from({ length: Math.min(groupCameraForm.endValue - groupCameraForm.startValue + 1, 8) }, (_, i) => (
+                                                <span key={i} style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', background: '#e2e8f0', borderRadius: '4px' }}>
+                                                    {groupCameraForm.namePrefix}{groupCameraForm.startValue + i}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                                    <button
+                                        onClick={() => {
+                                            const firstUrl = groupCameraForm.rtspTemplate.replace('{X}', groupCameraForm.startValue);
+                                            handleTestRtsp(firstUrl);
+                                        }}
+                                        disabled={!groupCameraForm.rtspTemplate.includes('{X}')}
+                                        style={{ padding: '0.75rem 1rem', borderRadius: '8px', background: '#64748b', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.875rem', opacity: groupCameraForm.rtspTemplate.includes('{X}') ? 1 : 0.5 }}
+                                    >
+                                        Test First Camera
+                                    </button>
+                                    <button
+                                        onClick={handleGroupAddCameras}
+                                        disabled={groupLoading}
+                                        style={{ padding: '0.75rem 1.5rem', borderRadius: '8px', background: 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', fontWeight: '600' }}
+                                    >
+                                        {groupLoading ? 'Adding...' : <><Plus size={16} /> Add Cameras</>}
+                                    </button>
+                                </div>
+
+                                {/* Group Results */}
+                                {groupResults.length > 0 && (
+                                    <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#64748b' }}>Results:</span>
+                                        <div style={{ marginTop: '0.5rem' }}>
+                                            {groupResults.map((result, i) => (
+                                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.25rem 0', fontSize: '0.875rem' }}>
+                                                    {result.success ? (
+                                                        <><Check size={14} style={{ color: '#22c55e' }} /> <span style={{ color: '#22c55e' }}>{result.camera?.name} added successfully</span></>
+                                                    ) : (
+                                                        <><AlertTriangle size={14} style={{ color: '#ef4444' }} /> <span style={{ color: '#ef4444' }}>{result.error}</span></>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 

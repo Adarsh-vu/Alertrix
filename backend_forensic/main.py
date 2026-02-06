@@ -20,7 +20,6 @@ from common.config import UPLOAD_THRESHOLD
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Cloudinary Setup REMOVED for speed optimization
 
 # Model Setup
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -31,8 +30,6 @@ print(f"FORENSIC SERVICE: Initializing on {DEVICE}...")
 
 if DEVICE != "cuda":
     print("WARNING: GPU not available! Forensic analysis will be slow.")
-    # User asked to FORCE GPU. We can't actually force hardware that isn't there, 
-    # but we will strictly prefer CUDA if available.
 else:
     print("FORENSIC SERVICE: GPU Detected & Locked.")
 
@@ -47,7 +44,6 @@ except Exception as e:
 
 # Analysis Logic
 def process_video_forensic(video_path):
-    # Model is already loaded globally, but check if we need to reload (if Live service requested release)
     global model, processor
     if model is None:
         print(f"Reloading AI Model for Analysis on {DEVICE}...")
@@ -112,7 +108,6 @@ def process_video_forensic(video_path):
 
     finally:
         cap.release()
-        # Do NOT unload model here. Keep it for next request.
 
     return anomalies
 

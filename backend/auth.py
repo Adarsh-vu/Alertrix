@@ -57,7 +57,6 @@ def admin_required(f):
     return decorated
 
 def format_user(user):
-    """Format user data for JSON response (remove sensitive fields)"""
     if not user:
         return None
     return {
@@ -102,7 +101,7 @@ def signup():
     if UserService.get_user_by_email(email):
         return jsonify({'error': 'Email already registered'}), 400
     
-    # First user becomes admin (admin has no shift)
+    # First user becomes admin
     is_first_user = UserService.count_users() == 0
     role = 'admin' if is_first_user else 'officer'
     
@@ -288,7 +287,6 @@ def google_signin():
 @auth_bp.route('/complete-profile', methods=['POST'])
 @token_required
 def complete_profile(current_user):
-    """Complete profile for Google users - add phone, department, and password"""
     data = request.get_json()
     
     phone = data.get('phone', '').strip()

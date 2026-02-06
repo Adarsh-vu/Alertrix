@@ -1,13 +1,3 @@
-"""
-Alertrix - Live Stream Manager
-Real-time video streaming with Smart Sampling for AI inference.
-
-Architecture:
-- Visual Stream: 30 FPS MJPEG for smooth viewing
-- AI Thread: Samples 1 frame/0.1s, runs inference every 16 frames (~1.6s)
-- Global threat_score updated after each inference
-"""
-
 import cv2
 import time
 import math
@@ -20,27 +10,8 @@ from PIL import Image
 
 
 class StreamManager:
-    """
-    Manages video feeds with Smart Sampling for efficient GPU usage.
-    
-    Features:
-    - Smooth 30 FPS visual streaming via MJPEG
-    - Background AI inference every 1.6 seconds
-    - Thread-safe threat score updates
-    - Automatic resource cleanup
-    """
     
     def __init__(self, model, processor, device, use_fp16, threshold):
-        """
-        Initialize the StreamManager.
-        
-        Args:
-            model: VideoMAE model instance
-            processor: VideoMAE image processor
-            device: 'cuda' or 'cpu'
-            use_fp16: Whether to use FP16 precision
-            threshold: Anomaly detection threshold
-        """
         self.model = model
         self.processor = processor
         self.device = device
@@ -52,19 +23,11 @@ class StreamManager:
         self.lock = threading.Lock()
         
         # Global threat scores per feed
-        self.threat_scores = {}  # {source_id: {'score': float, 'status': str, 'timestamp': datetime}}
+        self.threat_scores = {}
         
         print("✅ StreamManager initialized")
     
     def start_feed(self, source, source_id, name="Camera"):
-        """
-        Start a new camera feed.
-        
-        Args:
-            source: 0 for webcam, or RTSP/HTTP URL string
-            source_id: Unique identifier for this feed
-            name: Display name for the camera
-        """
         with self.lock:
             if source_id in self.feeds:
                 print(f"⚠️ Feed {source_id} already running")
@@ -118,25 +81,17 @@ class StreamManager:
             print("🛑 All feeds stopped")
     
     def get_frame_generator(self, source_id):
-        """
-        Get the MJPEG frame generator for a specific feed.
-        
-        Args:
-            source_id: The feed identifier
-            
-        Yields:
-            bytes: JPEG-encoded frames as multipart stream
-        """
+
         if source_id not in self.feeds:
             return None
         return self.feeds[source_id].generate_mjpeg()
     
     def get_scores(self):
-        """Get current threat scores for all feeds."""
+
         return dict(self.threat_scores)
     
     def get_score(self, source_id):
-        """Get threat score for a specific feed."""
+
         return self.threat_scores.get(source_id, {
             'score': 0.0,
             'status': 'OFFLINE',
@@ -160,12 +115,6 @@ class StreamManager:
 
 
 class CameraFeed:
-    """
-    Individual camera feed handler with Smart Sampling.
-    
-    - Visual thread: Captures frames at ~30 FPS for smooth display
-    - AI thread: Samples frames every 0.1s, runs inference every 16 frames
-    """
     
     def __init__(self, source, source_id, name, model, processor, device, use_fp16, threshold, score_callback):
         self.source = source
@@ -196,9 +145,9 @@ class CameraFeed:
         self.current_status = "INITIALIZING"
 
         # Smoothing & Motion Gating
-        self.score_history = deque(maxlen=4)  # Smooth over last ~6 seconds
+        self.score_history = deque(maxlen=4)
         self.prev_frame_gray = None
-        self.motion_threshold = 0.005  # 0.5% of pixels must change
+        self.motion_threshold = 0.005
         
         # OpenCV capture
         self.cap = None
@@ -214,8 +163,6 @@ class CameraFeed:
         
         # Set optimal buffer size for real-time
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
-        # Try to set resolution to 640x480 for better performance
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         
@@ -353,7 +300,7 @@ class CameraFeed:
                 
                 avg_score = sum(self.score_history) / len(self.score_history) if self.score_history else 0.0
                 self.current_score = round(avg_score, 4)
-                self.current_status = "SECURE" # Force secure on no motion
+                self.current_status = "SECURE"
                 
                 # Callback to update global scores
                 self.score_callback(self.source_id, self.current_score, self.current_status)
@@ -383,8 +330,7 @@ class CameraFeed:
             self.current_score = round(avg_score, 4)
             
             # 3. Status Determination
-            # Use a slightly more robust logic for status
-            if avg_score > 0.72: # Slightly higher for Critical to avoid false triggers
+            if avg_score > 0.72:
                 self.current_status = "CRITICAL"
             elif avg_score > self.threshold:
                 self.current_status = "WARNING"
@@ -412,12 +358,6 @@ class CameraFeed:
         return torch.gather(mask, dim=1, index=ids_shuffle).bool().to(self.device)
     
     def generate_mjpeg(self):
-        """
-        Generate MJPEG stream with threat score overlay.
-        
-        Yields:
-            bytes: JPEG frames as multipart stream
-        """
         while self.running:
             try:
                 with self.frame_lock:
