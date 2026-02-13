@@ -10,7 +10,7 @@ CLOUDINARY_CONFIG = {
 
 # Thresholds
 UPLOAD_THRESHOLD = 0.46
-LIVE_THRESHOLD = 0.50
+LIVE_THRESHOLD = 0.46
 
 MODEL_FILENAME = "alertrix_final_epoch40.pth"
 

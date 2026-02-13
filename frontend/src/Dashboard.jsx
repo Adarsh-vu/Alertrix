@@ -101,31 +101,11 @@ const Dashboard = ({ user, onLogout }) => {
     const [newPerson, setNewPerson] = useState({ name: '', phone: '', age: '', address: '', aadhaar: '' });
     const [aadhaarError, setAadhaarError] = useState('');
 
-    // WebSocket connection (PHASE 3)
-    /*
-    useEffect(() => {
-        const connectWebSocket = () => {
-            wsRef.current = new WebSocket('ws://localhost:5000/ws/stream');
-            wsRef.current.onopen = () => setIsConnected(true);
-            wsRef.current.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                const score = data.anomaly_score;
-                setCurrentScore(Math.round(score * 100));
-                // ... logic ...
-            };
-            wsRef.current.onclose = () => setIsConnected(false);
-        };
-        // connectWebSocket();
-        // return () => wsRef.current?.close();
-    }, []);
-    */
 
-    // Handle file upload
     const handleFileUpload = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
 
-        // 1. Immediate Preview
         const objectUrl = URL.createObjectURL(file);
         setPreviewUrl(objectUrl);
         setAnalysisResult(null);
@@ -136,35 +116,41 @@ const Dashboard = ({ user, onLogout }) => {
 
         const startTime = performance.now();
 
-        try {
-            // 5-minute timeout for long analysis
+        const attemptAnalysis = async () => {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 300000);
-
             const response = await fetch('http://localhost:5001/analyze', {
                 method: 'POST',
                 body: formData,
                 signal: controller.signal
             });
-
             clearTimeout(timeoutId);
-
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('Backend error:', errorText);
                 throw new Error(`Server Error: ${response.status}`);
             }
+            return await response.json();
+        };
 
-            const data = await response.json();
+        try {
+            let data;
+            try {
+                data = await attemptAnalysis();
+            } catch (firstError) {
+                console.warn('First attempt failed, reloading forensic model and retrying...', firstError);
+                try { await fetch('http://localhost:5001/api/reload', { method: 'POST' }); } catch (e) { }
+                await new Promise(r => setTimeout(r, 2000));
+                data = await attemptAnalysis();
+            }
+
             console.log('Analysis result:', data);
             const endTime = performance.now();
             const duration = ((endTime - startTime) / 1000).toFixed(2);
 
-            // 2. Store Result
             setAnalysisResult({ ...data, processingTime: duration });
             setIsAnalyzing(false);
 
-            // Keep existing log
             setUploadedVideos(prev => [...prev, {
                 id: Date.now(),
                 name: file.name,
@@ -699,18 +685,17 @@ const Dashboard = ({ user, onLogout }) => {
                 if (data.webcam) {
                     const scoreData = data.webcam;
                     setLiveScore(scoreData);
-                    // Use dampened score for display
-                    const displayScore = Math.min(Math.round(scoreData.score * 65), 99);
+                    const displayScore = Math.min(Math.round(scoreData.score * 85), 99);
                     setCurrentScore(displayScore);
                     setLiveScoreHistory(prev => {
                         const newPoint = {
                             time: new Date().toLocaleTimeString(),
-                            score: scoreData.score * 0.65 // Dampened for chart
+                            score: scoreData.score * 0.85
                         };
                         const updated = [...prev, newPoint].slice(-30);
                         return updated;
                     });
-                    if (scoreData.score > 0.70) {
+                    if (scoreData.score > 0.55) {
                         triggerAlert(scoreData.score, scoreData.status);
                     }
                 }
@@ -798,21 +783,16 @@ const Dashboard = ({ user, onLogout }) => {
         lastAlertTimeRef.current = now;
     };
 
-    // ==========================================
-    // ALERT TRIGGER (Called when score exceeds threshold)
-    // ==========================================
     const triggerAlert = (score, status) => {
         if (alertsMuted) return;
 
-        // Voice Alert
         if (status === 'CRITICAL') {
             speakAlert(`Critical alert! Threat score ${Math.round(score * 100)} percent. Immediate attention required.`);
         } else if (status === 'WARNING') {
             speakAlert(`Warning. Potential anomaly detected. Threat score ${Math.round(score * 100)} percent.`);
         }
 
-        // Browser Notification
-        if (score > 0.70) {
+        if (score > 0.55) {
             sendBrowserNotification(
                 '🚨 CRITICAL ALERT - Alertrix',
                 `Anomaly detected! Threat Score: ${Math.round(score * 100)}%`,
@@ -824,6 +804,21 @@ const Dashboard = ({ user, onLogout }) => {
                 `Potential anomaly detected. Score: ${Math.round(score * 100)}%`,
                 score
             );
+        }
+
+        if (score > 0.75 && alertSettings.emailAlerts && userProfile.email) {
+            fetch('http://localhost:5000/api/alerts/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    recipient_email: userProfile.email,
+                    source_id: 'webcam',
+                    score: score,
+                    camera_name: 'Webcam'
+                })
+            }).then(res => res.json()).then(data => {
+                console.log('Email alert result:', data);
+            }).catch(err => console.error('Email alert error:', err));
         }
     };
 
@@ -846,11 +841,11 @@ const Dashboard = ({ user, onLogout }) => {
 
     // Get status color and label
     const getStatusStyle = (status, score) => {
-        if (status === 'CRITICAL' || score > 0.70) {
+        if (status === 'CRITICAL' || score > 0.55) {
             return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)', border: '#ef4444', label: 'CRITICAL', pulse: true };
-        } else if (status === 'WARNING' || score > 0.40) {
+        } else if (status === 'WARNING' || score > 0.45) {
             return { color: '#f97316', bg: 'rgba(249, 115, 22, 0.1)', border: '#f97316', label: 'WARNING', pulse: false };
-        } else if (status === 'SECURE' || (score > 0 && score <= 0.40)) {
+        } else if (status === 'SECURE' || (score > 0 && score <= 0.45)) {
             return { color: '#14b8a6', bg: 'rgba(20, 184, 166, 0.1)', border: '#14b8a6', label: 'SECURE', pulse: false };
         }
         return { color: '#64748b', bg: 'rgba(100, 116, 139, 0.1)', border: '#64748b', label: 'OFFLINE', pulse: false };
@@ -858,8 +853,7 @@ const Dashboard = ({ user, onLogout }) => {
 
     const statusStyle = getStatusStyle(liveScore.status, liveScore.score);
     const getDisplayScore = (rawScore) => {
-        const dampened = rawScore * 0.65;
-        return Math.min(Math.round(dampened * 100), 99);
+        return Math.min(Math.round(rawScore * 85), 99);
     };
 
     const renderLiveMonitoring = () => {

@@ -167,13 +167,17 @@ class CameraFeed:
         self.current_score = 0.0
         self.current_status = "INITIALIZING"
 
-        self.score_history = deque(maxlen=2)
+        self.score_history = deque(maxlen=3)
         self.prev_frame_gray = None
-        self.motion_threshold = 0.001
+        self.motion_threshold = 0.003
+        self.min_contour_area = 1000
+        self.prev_motion_ratio = 0.0
+        self.peak_score = 0.0
+        self.peak_time = 0.0
         
         # OpenCV capture
         self.cap = None
-        self.inference_counter = 8
+        self.inference_counter = 4
         
     def start(self):
         """Start the camera feed threads."""
@@ -264,7 +268,7 @@ class CameraFeed:
                     if len(self.ai_buffer) == 16:
                         self.inference_counter += 1
                         
-                        if self.inference_counter >= 8:
+                        if self.inference_counter >= 4:
                             frames_to_process = list(self.ai_buffer) # Copy buffer
                             self.inference_counter = 0 # Reset counter
                             
@@ -279,17 +283,15 @@ class CameraFeed:
                 time.sleep(sleep_time)
 
     def _detect_motion(self, current_frame):
-        """Simple motion detection to filter out static scenes."""
         gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
         
         if self.prev_frame_gray is None:
             self.prev_frame_gray = gray
-            return True
+            return 1.0
             
         frame_delta = cv2.absdiff(self.prev_frame_gray, gray)
         thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
-        
         thresh = cv2.dilate(thresh, None, iterations=2)
         
         changed_pixels = cv2.countNonZero(thresh)
@@ -298,19 +300,31 @@ class CameraFeed:
         
         self.prev_frame_gray = gray
         
-        return motion_ratio > self.motion_threshold
+        if motion_ratio <= self.motion_threshold:
+            return 0.0
+        
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        significant_motion = any(cv2.contourArea(c) > self.min_contour_area for c in contours)
+        
+        return motion_ratio if significant_motion else 0.0
     
     def _run_inference(self, frames, current_frame_cv):
-        """Run VideoMAE inference on 16 frames with Motion Gating and Smoothing."""
         try:
-            if not self._detect_motion(current_frame_cv):
+            motion_ratio = self._detect_motion(current_frame_cv)
+            
+            if motion_ratio == 0.0:
+                self.prev_motion_ratio = 0.0
                 self.score_history.append(0.0)
-                if len(self.score_history) > 4: self.score_history.popleft()
                 
-                avg_score = sum(self.score_history) / len(self.score_history) if self.score_history else 0.0
-                self.current_score = round(avg_score, 4)
-                self.current_status = "SECURE"
+                now = time.time()
+                if now - self.peak_time < 4.0 and self.peak_score > 0:
+                    final_score = self.peak_score * max(0, 1.0 - (now - self.peak_time) / 4.0)
+                else:
+                    final_score = sum(self.score_history) / len(self.score_history) if self.score_history else 0.0
+                    self.peak_score = 0.0
                 
+                self.current_score = round(final_score, 4)
+                self.current_status = "SECURE" if final_score < self.threshold else ("CRITICAL" if final_score > 0.55 else "WARNING")
                 self.score_callback(self.source_id, self.current_score, self.current_status)
                 return
 
@@ -323,25 +337,49 @@ class CameraFeed:
             with torch.no_grad():
                 outputs = self.model(inputs, bool_masked_pos=mask)
                 loss = outputs.loss.item()
-                
                 if not math.isfinite(loss):
                     loss = 1.0
             
-            self.score_history.append(loss)
-            avg_score = sum(self.score_history) / len(self.score_history)
+            motion_boost = 1.0
+            if motion_ratio > 0.02:
+                motion_boost = 1.0 + min(motion_ratio * 5, 0.4)
             
-            self.current_score = round(avg_score, 4)
+            motion_accel = motion_ratio - self.prev_motion_ratio
+            accel_boost = 1.0
+            if motion_accel > 0.015:
+                accel_boost = 1.0 + min(motion_accel * 10, 0.5)
             
-            if avg_score > 0.65:
+            self.prev_motion_ratio = motion_ratio
+            
+            boosted_loss = min(loss * motion_boost * accel_boost, 1.0)
+            
+            self.score_history.append(boosted_loss)
+            current_max = max(self.score_history)
+            
+            now = time.time()
+            if current_max > self.peak_score:
+                self.peak_score = current_max
+                self.peak_time = now
+            
+            if now - self.peak_time < 4.0:
+                final_score = max(current_max, self.peak_score * max(0, 1.0 - (now - self.peak_time) / 4.0))
+            else:
+                final_score = current_max
+                self.peak_score = current_max
+                self.peak_time = now
+            
+            self.current_score = round(final_score, 4)
+            
+            if final_score > 0.55:
                 self.current_status = "CRITICAL"
-            elif avg_score > self.threshold:
+            elif final_score > self.threshold:
                 self.current_status = "WARNING"
             else:
                 self.current_status = "SECURE"
             
             self.score_callback(self.source_id, self.current_score, self.current_status)
             
-            print(f"[{self.name}] Score: {self.current_score:.4f} (Raw: {loss:.4f}) | Status: {self.current_status}")
+            print(f"[{self.name}] Score: {self.current_score:.4f} (Raw: {loss:.4f}, Motion: {motion_ratio:.4f}, Boost: {motion_boost:.2f}x, Accel: {accel_boost:.2f}x) | {self.current_status}")
             
         except Exception as e:
             print(f"Inference error on {self.name}: {e}")

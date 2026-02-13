@@ -72,3 +72,4 @@ logs/
 
 # Secrets
 *firebase-credentials.json
+**/alerts.py

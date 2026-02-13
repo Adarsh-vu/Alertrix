@@ -12,6 +12,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
 import time
+import gc
 
 from common.model_utils import load_video_mae_model, generate_mask
 from common.config import UPLOAD_THRESHOLD
@@ -165,20 +166,14 @@ def analyze():
         has_anomaly = any(r['is_anomaly'] for r in results)
         status = "ANOMALY DETECTED" if has_anomaly else "SECURE"
         
-        # Cloudinary Upload REMOVED
-        video_url = None 
+        video_url = None
 
         total_time = time.time() - start_time
         print(f"[TIMING] Inference: {inference_time:.2f}s | Total: {total_time:.2f}s")
-        
-        # Cleanup
-        if os.path.exists(temp_filename):
-            os.remove(temp_filename)
-            
         return jsonify({
             "service": "forensic",
             "status": status,
-            "total_threats": len(results),
+            "total_threats": sum(1 for r in results if r['is_anomaly']),
             "video_url": video_url, 
             "details": results,
             "processing_time": f"{total_time:.2f}s"
@@ -187,6 +182,9 @@ def analyze():
     except Exception as e:
         print(f"Server Error: {e}")
         return jsonify({"error": str(e)}), 500
+    finally:
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
 
 if __name__ == '__main__':
     print("FORENSIC SERVICE STARTING ON PORT 5001")

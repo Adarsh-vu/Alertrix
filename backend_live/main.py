@@ -77,6 +77,23 @@ except Exception as e:
 def health():
     return jsonify({"status": "online", "service": "live", "gpu": DEVICE})
 
+@app.route('/api/alerts/send-email', methods=['POST'])
+def send_email_alert():
+    if not ALERTS_ENABLED:
+        return jsonify({"error": "Alert system not available"}), 503
+    data = request.get_json() or {}
+    recipient = data.get('recipient_email')
+    source_id = data.get('source_id', 'webcam')
+    score = data.get('score', 0)
+    camera_name = data.get('camera_name', 'Webcam')
+    if not recipient:
+        return jsonify({"error": "recipient_email is required"}), 400
+    result = alert_manager.send_email_alert(recipient, source_id, score, camera_name)
+    if result['success']:
+        return jsonify({"status": "sent", "message": result['message']})
+    else:
+        return jsonify({"status": "failed", "error": result['error']}), 500
+
 @app.route('/video_feed/<source_id>')
 def video_feed(source_id):
     if not LIVE_STREAMING_ENABLED or not stream_manager.is_feed_active(source_id):
