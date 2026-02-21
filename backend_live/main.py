@@ -1,11 +1,14 @@
 import sys
 import os
+import math
+import time
+import random
 
 # Add parent directory to path to import from common
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import torch
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 import cloudinary
 
@@ -131,6 +134,114 @@ def get_live_status():
         "scores": stream_manager.get_scores(),
         "demo_cameras": DEMO_CAMERAS
     })
+
+# ------------------------------------------
+# DASH CAM ROUTES
+# ------------------------------------------
+DASHCAM_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Dash Cam")
+print(f"Dash Cam folder: {DASHCAM_FOLDER} (exists: {os.path.exists(DASHCAM_FOLDER)})")
+
+DASHCAM_VIDEOS = {
+    "cam_entrance": {"file": "entrance.mp4", "name": "CAM-01 ENTRANCE", "location": "Main Entrance"},
+    "cam_parking": {"file": "parking.mp4", "name": "CAM-02 PARKING", "location": "Parking Lot A"},
+    "cam_hallway": {"file": "Hallway.mov", "name": "CAM-03 HALLWAY", "location": "Main Hallway"},
+    "cam_exit": {"file": "exit.mp4", "name": "CAM-04 EXIT", "location": "Emergency Exit"},
+}
+
+@app.route('/api/dashcam/list')
+def dashcam_list():
+    """Return list of available dash cam feeds."""
+    cameras = []
+    for cam_id, info in DASHCAM_VIDEOS.items():
+        filepath = os.path.join(DASHCAM_FOLDER, info['file'])
+        cameras.append({
+            "id": cam_id,
+            "name": info['name'],
+            "location": info['location'],
+            "filename": info['file'],
+            "available": os.path.exists(filepath)
+        })
+    return jsonify({"cameras": cameras})
+
+@app.route('/api/dashcam/video/<filename>')
+def dashcam_video(filename):
+    """Serve dash cam video files with range request support."""
+    filepath = os.path.join(DASHCAM_FOLDER, filename)
+    if not os.path.exists(filepath):
+        return jsonify({"error": "Video not found"}), 404
+    
+    # Determine MIME type
+    mime = 'video/mp4'
+    if filename.lower().endswith('.mov'):
+        mime = 'video/quicktime'
+    elif filename.lower().endswith('.avi'):
+        mime = 'video/x-msvideo'
+    
+    file_size = os.path.getsize(filepath)
+    
+    # Handle range requests for smooth video streaming
+    range_header = request.headers.get('Range')
+    if range_header:
+        byte_start = 0
+        byte_end = file_size - 1
+        
+        range_match = range_header.replace('bytes=', '').split('-')
+        byte_start = int(range_match[0])
+        if range_match[1]:
+            byte_end = int(range_match[1])
+        
+        content_length = byte_end - byte_start + 1
+        
+        def generate_range():
+            with open(filepath, 'rb') as f:
+                f.seek(byte_start)
+                remaining = content_length
+                while remaining > 0:
+                    chunk_size = min(8192, remaining)
+                    data = f.read(chunk_size)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+        
+        response = Response(
+            generate_range(),
+            status=206,
+            mimetype=mime,
+            direct_passthrough=True
+        )
+        response.headers['Content-Range'] = f'bytes {byte_start}-{byte_end}/{file_size}'
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Content-Length'] = content_length
+        return response
+    
+    return send_from_directory(DASHCAM_FOLDER, filename, mimetype=mime)
+
+@app.route('/api/dashcam/scores')
+def dashcam_scores():
+    """Return simulated anomaly scores (35-55%) for dash cam feeds."""
+    scores = {}
+    current_time = time.time()
+    for cam_id in DASHCAM_VIDEOS:
+        seed = hash(cam_id) % 1000
+        base = 0.45
+        variation = 0.10 * math.sin(current_time * 0.3 + seed)
+        jitter = random.uniform(-0.03, 0.03)
+        score = max(0.35, min(0.55, base + variation + jitter))
+        
+        if score > 0.50:
+            status = "ELEVATED"
+        elif score > 0.42:
+            status = "MONITORING"
+        else:
+            status = "NORMAL"
+        
+        scores[cam_id] = {
+            "score": round(score, 4),
+            "status": status,
+            "timestamp": current_time
+        }
+    return jsonify(scores)
 
 # Socket IO
 if SOCKETIO_ENABLED:

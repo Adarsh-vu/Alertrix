@@ -67,6 +67,7 @@ logs/
 *.onnx
 
 # Local documentation & scripts
+docs/
 *.docx
 *.bat
 
