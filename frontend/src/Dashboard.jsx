@@ -41,6 +41,9 @@ const Dashboard = ({ user, onLogout }) => {
     };
     const [anomalyData, setAnomalyData] = useState([]);
     const [uploadedVideos, setUploadedVideos] = useState([]);
+    // Dash cam CCTV state
+    const [dashcamScores, setDashcamScores] = useState({});
+    const [cctvTime, setCctvTime] = useState(new Date());
     // Forensic Analysis State
     const [previewUrl, setPreviewUrl] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -66,6 +69,36 @@ const Dashboard = ({ user, onLogout }) => {
     };
 
     const isAdmin = user?.role === 'admin';
+
+    // Dash cam CCTV config
+    const dashcamFeeds = [
+        { id: 'cam_entrance', name: 'CAM-01 ENTRANCE', location: 'Main Entrance', filename: 'entrance.mp4' },
+        { id: 'cam_parking', name: 'CAM-02 PARKING', location: 'Parking Lot A', filename: 'parking.mp4' },
+        { id: 'cam_hallway', name: 'CAM-03 HALLWAY', location: 'Main Hallway', filename: 'Hallway.mov' },
+        { id: 'cam_exit', name: 'CAM-04 EXIT', location: 'Emergency Exit', filename: 'exit.mp4' },
+    ];
+
+    // Poll dash cam scores every 3 seconds
+    useEffect(() => {
+        const fetchScores = async () => {
+            try {
+                const res = await fetch('http://localhost:5000/api/dashcam/scores');
+                const data = await res.json();
+                setDashcamScores(data);
+            } catch (err) {
+                // Silently ignore - scores are optional
+            }
+        };
+        fetchScores();
+        const interval = setInterval(fetchScores, 3000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // Update CCTV clock every second
+    useEffect(() => {
+        const timer = setInterval(() => setCctvTime(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     // Camera feed data - default demo cameras shown on dashboard
     const [cameras, setCameras] = useState([
@@ -231,57 +264,56 @@ const Dashboard = ({ user, onLogout }) => {
             </div>
 
             <section className="camera-section">
-                <h2>Live AI-Monitored Camera Feeds</h2>
+                <h2>Dash Cam Surveillance Feeds</h2>
                 <div className="camera-grid">
-                    {cameras.filter(c => c.visible).map((camera) => (
-                        <div key={camera.id} className="camera-card">
-                            <span className={`camera-badge ${camera.status}`}>
-                                {camera.status === 'active' ? 'AI ACTIVE' : 'OFFLINE'}
-                            </span>
-                            {camera.status === 'active' && (
-                                <span className="score-badge">Score: {camera.score}%</span>
-                            )}
-                            <div className="camera-placeholder"><Camera /></div>
-                            <div className="camera-label">
-                                <h4>{camera.name}</h4>
-                                <p>{camera.location}</p>
+                    {dashcamFeeds.map((feed) => {
+                        const scoreData = dashcamScores[feed.id];
+                        const scorePercent = scoreData ? Math.round(scoreData.score * 100) : 0;
+                        const scoreStatus = scoreData?.status || 'LOADING';
+                        const scoreColor = scorePercent > 50 ? '#f97316' : scorePercent > 42 ? '#14b8a6' : '#22c55e';
+                        return (
+                            <div key={feed.id} className="camera-card cctv-card">
+                                {/* CCTV Video Feed */}
+                                <video
+                                    className="dashcam-video"
+                                    src={`http://localhost:5000/api/dashcam/video/${feed.filename}`}
+                                    loop
+                                    muted
+                                    autoPlay
+                                    playsInline
+                                />
+                                {/* Scan-line overlay */}
+                                <div className="cctv-scanlines"></div>
+                                {/* Top overlay: REC + Timestamp */}
+                                <div className="cctv-overlay-top">
+                                    <div className="cctv-rec">
+                                        <span className="cctv-rec-dot"></span>
+                                        REC
+                                    </div>
+                                    <div className="cctv-timestamp">
+                                        {cctvTime.toLocaleDateString('en-GB')} {cctvTime.toLocaleTimeString('en-GB')}
+                                    </div>
+                                </div>
+                                {/* Bottom overlay: Camera name + Score */}
+                                <div className="cctv-overlay-bottom">
+                                    <div className="cctv-cam-label">
+                                        <Camera size={14} />
+                                        <span>{feed.name}</span>
+                                    </div>
+                                    <div className="cctv-score" style={{ color: scoreColor }}>
+                                        <Activity size={12} />
+                                        <span>{scorePercent}%</span>
+                                        <span className="cctv-score-status" style={{ background: `${scoreColor}25`, color: scoreColor }}>
+                                            {scoreStatus}
+                                        </span>
+                                    </div>
+                                </div>
+                                {/* AI Active badge */}
+                                <span className="camera-badge active">AI ACTIVE</span>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
-            </section>
-
-            {/* CCTV Prototype Section */}
-            <section className="cctv-prototype-section">
-                <div className="section-header">
-                    <h3><Camera size={18} className="inline-icon" /> CCTV Sources (Prototype)</h3>
-                    <span className="section-badge">Demo Mode</span>
-                </div>
-                <div className="camera-list">
-                    {[
-                        { id: 'cam_lobby', name: 'Main Lobby', location: 'Building A, Floor 1' },
-                        { id: 'cam_parking', name: 'Parking Lot', location: 'Basement Level' },
-                        { id: 'cam_hallway', name: 'East Hallway', location: 'Building A, Floor 2' },
-                        { id: 'cam_entrance', name: 'Main Entrance', location: 'Building A, Ground' },
-                    ].map((cam) => (
-                        <div key={cam.id} className="camera-list-item">
-                            <div className="camera-list-icon">
-                                <Camera size={20} />
-                            </div>
-                            <div className="camera-list-content">
-                                <span className="camera-list-name">{cam.name}</span>
-                                <span className="camera-list-location">{cam.location}</span>
-                            </div>
-                            <div className="camera-list-status offline">
-                                <span className="status-dot"></span>
-                                Not Connected
-                            </div>
-                        </div>
-                    ))}
-                </div>
-                <p className="camera-hint">
-                    <AlertTriangle size={14} /> Connect CCTV sources via RTSP/HTTP to enable multi-feed monitoring
-                </p>
             </section>
 
             {showCameraManager && (
