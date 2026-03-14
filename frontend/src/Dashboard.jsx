@@ -654,6 +654,7 @@ const Dashboard = ({ user, onLogout }) => {
     const [webcamLoading, setWebcamLoading] = useState(false);
     const [liveScore, setLiveScore] = useState({ score: 0, status: 'OFFLINE' });
     const [liveScoreHistory, setLiveScoreHistory] = useState([]);
+    const [anomalyClips, setAnomalyClips] = useState([]);
     const scorePollingRef = useRef(null);
 
     // Demo camera list for prototype
@@ -735,11 +736,30 @@ const Dashboard = ({ user, onLogout }) => {
                 console.error('Score polling error:', err);
             }
         }, 1500);
+
+        // Poll for anomaly clips every 5s
+        const clipInterval = setInterval(async () => {
+            try {
+                const res = await fetch('http://localhost:5000/api/live/anomaly-clips');
+                const data = await res.json();
+                if (data.clips) setAnomalyClips(data.clips);
+            } catch (err) { /* ignore */ }
+        }, 5000);
+        scorePollingRef.current = { scoreInterval: scorePollingRef.current, clipInterval };
     };
 
     const stopScorePolling = () => {
         if (scorePollingRef.current) {
-            clearInterval(scorePollingRef.current);
+            if (scorePollingRef.current.scoreInterval) {
+                clearInterval(scorePollingRef.current.scoreInterval);
+            }
+            if (scorePollingRef.current.clipInterval) {
+                clearInterval(scorePollingRef.current.clipInterval);
+            }
+            // Legacy: direct interval ID
+            if (typeof scorePollingRef.current === 'number') {
+                clearInterval(scorePollingRef.current);
+            }
             scorePollingRef.current = null;
         }
     };
@@ -1128,6 +1148,50 @@ const Dashboard = ({ user, onLogout }) => {
                         </ResponsiveContainer>
                     </div>
                 </div>
+
+                {/* Anomaly Evidence Clips (admin only) */}
+                {isAdmin && anomalyClips.length > 0 && (
+                    <div className="live-chart-section-fullwidth">
+                        <div className="chart-header">
+                            <h3><FileVideo size={18} /> Anomaly Evidence Clips</h3>
+                            <span className="chart-time-label">{anomalyClips.length} clip{anomalyClips.length !== 1 ? 's' : ''} recorded</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px', padding: '16px' }}>
+                            {anomalyClips.map((clip, idx) => (
+                                <div key={idx} style={{
+                                    background: '#f8fafc', borderRadius: '12px', padding: '14px',
+                                    border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '12px', color: '#64748b', fontFamily: 'monospace' }}>
+                                            {new Date(clip.timestamp).toLocaleString()}
+                                        </span>
+                                        <span style={{
+                                            fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '6px',
+                                            background: clip.peak_score > 0.55 ? '#fef2f2' : '#fff7ed',
+                                            color: clip.peak_score > 0.55 ? '#ef4444' : '#f97316'
+                                        }}>
+                                            Peak: {Math.round(clip.peak_score * 100)}%
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '13px', color: '#475569' }}>
+                                            {clip.camera_name} • {clip.duration}s
+                                        </span>
+                                        <a href={clip.url} target="_blank" rel="noopener noreferrer"
+                                            style={{
+                                                fontSize: '12px', fontWeight: 600, color: '#14B8A6',
+                                                textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}
+                                        >
+                                            <Play size={14} /> View Clip
+                                        </a>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
         );
     };

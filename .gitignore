@@ -74,3 +74,10 @@ docs/
 # Secrets
 *firebase-credentials.json
 **/alerts.py
+Dash Cam/entrance.mp4
+Dash Cam/exit.mp4
+Dash Cam/Hallway.mov
+Dash Cam/parking.mp4
+evaluate_model.py
+.gitignore
+.gitignore

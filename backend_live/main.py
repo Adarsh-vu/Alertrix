@@ -243,6 +243,13 @@ def dashcam_scores():
         }
     return jsonify(scores)
 
+@app.route('/api/live/anomaly-clips')
+def get_anomaly_clips():
+    """Return list of uploaded anomaly clips."""
+    if not LIVE_STREAMING_ENABLED:
+        return jsonify({"clips": []})
+    return jsonify({"clips": stream_manager.get_clips()})
+
 # Socket IO
 if SOCKETIO_ENABLED:
     @socketio.on('connect')
@@ -263,6 +270,8 @@ if SOCKETIO_ENABLED:
 
 if __name__ == '__main__':
     print("LIVE SERVICE STARTING ON PORT 5000")
+    dashcam_count = sum(1 for v in DASHCAM_VIDEOS.values() if os.path.exists(os.path.join(DASHCAM_FOLDER, v['file'])))
+    print(f"  Dashcam feeds available: {dashcam_count}/{len(DASHCAM_VIDEOS)}")
     if SOCKETIO_ENABLED:
         socketio.run(app, host='0.0.0.0', port=5000, debug=True)
     else:

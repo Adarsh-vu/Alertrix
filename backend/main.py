@@ -265,6 +265,13 @@ def get_live_status():
         "demo_cameras": DEMO_CAMERAS
     })
 
+@app.route('/api/live/anomaly-clips')
+def get_anomaly_clips():
+    """Return list of uploaded anomaly clips."""
+    if not LIVE_STREAMING_ENABLED:
+        return jsonify({"clips": []})
+    return jsonify({"clips": stream_manager.get_clips()})
+
 @app.route('/api/cameras')
 def get_cameras():
     return jsonify({
@@ -470,13 +477,6 @@ def analyze():
         status = "ANOMALY DETECTED" if has_anomaly else "SECURE"
         
         video_url = None
-
-        # 2. If Anomaly -> Upload to Cloudinary
-        if status == "ANOMALY DETECTED":
-            print("Anomaly found! Uploading evidence to Cloud...")
-            upload_response = cloudinary.uploader.upload(temp_filename, resource_type="video")
-            video_url = upload_response['secure_url']
-            print(f"Evidence Uploaded: {video_url}")
 
         # Cleanup
         if os.path.exists(temp_filename):

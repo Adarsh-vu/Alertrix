@@ -1,12 +1,22 @@
 import cv2
 import time
 import math
+import os
+import tempfile
 import threading
+import queue
 from collections import deque
 from datetime import datetime
 import torch
 import numpy as np
 from PIL import Image
+import cloudinary
+import cloudinary.uploader
+
+# Anomaly clip limits (free tier safe)
+MAX_CLIP_SECONDS = 30
+MIN_CLIP_SECONDS = 5
+CLIP_RECORD_THRESHOLD = 0.70  # Only record clips at email-alert level
 
 
 class StreamManager:
@@ -24,6 +34,10 @@ class StreamManager:
         
         # Global threat scores per feed
         self.threat_scores = {}
+        
+        # Uploaded anomaly clips across all feeds
+        self.anomaly_clips = []
+        self.clips_lock = threading.Lock()
         
         print("✅ StreamManager initialized")
     
@@ -43,7 +57,8 @@ class StreamManager:
                     device=self.device,
                     use_fp16=self.use_fp16,
                     threshold=self.threshold,
-                    score_callback=self._update_score
+                    score_callback=self._update_score,
+                    clip_callback=self.add_clip
                 )
                 self.feeds[source_id] = feed
                 self.threat_scores[source_id] = {
@@ -112,11 +127,21 @@ class StreamManager:
                     'timestamp': datetime.now().isoformat(),
                     'name': self.threat_scores[source_id].get('name', 'Camera')
                 }
+    
+    def add_clip(self, clip_info):
+        """Store an uploaded anomaly clip."""
+        with self.clips_lock:
+            self.anomaly_clips.append(clip_info)
+    
+    def get_clips(self):
+        """Return all uploaded anomaly clips."""
+        with self.clips_lock:
+            return list(self.anomaly_clips)
 
 
 class CameraFeed:
     
-    def __init__(self, source, source_id, name, model, processor, device, use_fp16, threshold, score_callback):
+    def __init__(self, source, source_id, name, model, processor, device, use_fp16, threshold, score_callback, clip_callback=None):
         self.source = source
         self.source_id = source_id
         self.name = name
@@ -126,11 +151,13 @@ class CameraFeed:
         self.use_fp16 = use_fp16
         self.threshold = threshold
         self.score_callback = score_callback
+        self.clip_callback = clip_callback
         
         # Thread control
         self.running = False
         self.capture_thread = None
         self.ai_thread = None
+        self.upload_thread = None
         
         # Frame storage
         self.current_frame = None
@@ -151,6 +178,13 @@ class CameraFeed:
         
         # OpenCV capture
         self.cap = None
+        
+        # Anomaly clip recording (non-blocking)
+        self.anomaly_recording = False
+        self.anomaly_frames = []
+        self.anomaly_start_time = None
+        self.anomaly_peak_score = 0.0
+        self.upload_queue = queue.Queue()
         
     def start(self):
         """Start the camera feed threads."""
@@ -174,15 +208,23 @@ class CameraFeed:
         self.ai_thread = threading.Thread(target=self._ai_loop, daemon=True)
         self.ai_thread.start()
         
+        # Background thread for clip uploads (never blocks AI loop)
+        self.upload_thread = threading.Thread(target=self._upload_loop, daemon=True)
+        self.upload_thread.start()
+        
         print(f"📹 Camera feed started: {self.name}")
     
     def stop(self):
         """Stop the camera feed."""
         self.running = False
+        self._finalize_clip()
+        self.upload_queue.put(None)
         if self.capture_thread:
             self.capture_thread.join(timeout=2.0)
         if self.ai_thread:
             self.ai_thread.join(timeout=2.0)
+        if self.upload_thread:
+            self.upload_thread.join(timeout=5.0)
         if self.cap:
             self.cap.release()
         print(f"📹 Camera feed stopped: {self.name}")
@@ -253,6 +295,10 @@ class CameraFeed:
                         
                         # Run inference in separate call to keep lock time minimal
                         self._run_inference(frames_to_process, frame)
+                
+                # Record frames for anomaly clip at AI loop rate (~10 FPS)
+                if self.anomaly_recording:
+                    self.anomaly_frames.append(frame.copy())
                 
             except Exception as e:
                 print(f"❌ AI loop error on {self.name}: {e}")
@@ -339,6 +385,9 @@ class CameraFeed:
             
             # Callback to update global scores
             self.score_callback(self.source_id, self.current_score, self.current_status)
+            
+            # Anomaly clip recording (lightweight — just appends frame reference)
+            self._handle_clip_recording(current_frame_cv)
             
             print(f"🔍 [{self.name}] Score: {self.current_score:.4f} (Raw: {loss:.4f}) | Status: {self.current_status}")
             
@@ -428,6 +477,99 @@ class CameraFeed:
             cv2.rectangle(frame, (2, 2), (width - 2, height - 2), (0, 0, pulse), 3)
         
         return frame
+
+    def _handle_clip_recording(self, frame):
+        """Start/stop clip recording based on anomaly status."""
+        is_critical = self.current_score >= CLIP_RECORD_THRESHOLD
+        
+        if is_critical and not self.anomaly_recording:
+            self.anomaly_recording = True
+            self.anomaly_frames = []
+            self.anomaly_start_time = time.time()
+            self.anomaly_peak_score = self.current_score
+            print(f"[{self.name}] Anomaly clip recording started")
+        
+        if self.anomaly_recording:
+            self.anomaly_peak_score = max(self.anomaly_peak_score, self.current_score)
+            elapsed = time.time() - self.anomaly_start_time
+            if not is_critical or elapsed >= MAX_CLIP_SECONDS:
+                self._finalize_clip()
+    
+    def _finalize_clip(self):
+        """Queue the recorded clip for background upload."""
+        if not self.anomaly_recording or not self.anomaly_frames:
+            self.anomaly_recording = False
+            return
+        
+        elapsed = time.time() - self.anomaly_start_time
+        self.anomaly_recording = False
+        
+        if elapsed < MIN_CLIP_SECONDS:
+            print(f"[{self.name}] Clip too short ({elapsed:.1f}s), discarding")
+            self.anomaly_frames = []
+            return
+        
+        clip_data = {
+            'frames': self.anomaly_frames,
+            'duration': round(elapsed, 1),
+            'peak_score': self.anomaly_peak_score,
+            'timestamp': datetime.now().isoformat(),
+            'source_id': self.source_id,
+            'name': self.name
+        }
+        self.anomaly_frames = []
+        self.upload_queue.put(clip_data)
+        print(f"[{self.name}] Clip queued for upload ({clip_data['duration']}s, peak: {clip_data['peak_score']:.3f})")
+    
+    def _upload_loop(self):
+        """Background thread: writes clips to temp file and uploads to Cloudinary."""
+        while True:
+            clip_data = self.upload_queue.get()
+            if clip_data is None:
+                break
+            
+            try:
+                frames = clip_data['frames']
+                if not frames:
+                    continue
+                
+                h, w = frames[0].shape[:2]
+                clip_fps = 10  # Matches AI loop sampling rate
+                
+                tmp_path = os.path.join(tempfile.gettempdir(), f"alertrix_clip_{int(time.time())}.mp4")
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                writer = cv2.VideoWriter(tmp_path, fourcc, clip_fps, (w, h))
+                
+                for f in frames:
+                    writer.write(f)
+                writer.release()
+                
+                print(f"[{clip_data['name']}] Uploading anomaly clip to Cloudinary...")
+                result = cloudinary.uploader.upload(
+                    tmp_path,
+                    resource_type="video",
+                    folder="alertrix_anomaly_clips"
+                )
+                url = result.get('secure_url', '')
+                # Add H.264 transcoding for browser playback (mp4v isn't web-compatible)
+                url = url.replace('/upload/', '/upload/vc_h264/')
+                print(f"[{clip_data['name']}] Clip uploaded: {url}")
+                
+                if self.clip_callback:
+                    self.clip_callback({
+                        'url': url,
+                        'source_id': clip_data['source_id'],
+                        'camera_name': clip_data['name'],
+                        'duration': clip_data['duration'],
+                        'peak_score': clip_data['peak_score'],
+                        'timestamp': clip_data['timestamp']
+                    })
+                
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                    
+            except Exception as e:
+                print(f"[{clip_data.get('name', '?')}] Clip upload failed: {e}")
 
 
 # Demo camera configurations for testing
